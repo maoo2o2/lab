@@ -1,0 +1,917 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>産地マップ</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --green:  #2D5C1E;
+      --lime:   #8DC21F;
+      --yellow: #C8DC00;
+      --orange: #E63312;
+      --cream:  #FFFBF0;
+      --dark:   #1A3A0A;
+      --text:   #3D3D3D;
+      --muted:  #888;
+      --radius: 20px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+    body {
+      font-family: 'M PLUS Rounded 1c', 'Noto Sans JP', sans-serif;
+      background: #c8e6b0; min-height: 100vh; display: flex; justify-content: center;
+    }
+    .app {
+      width: 100%; max-width: 430px; min-height: 100vh;
+      background: var(--cream); position: relative; overflow: hidden;
+    }
+    .screen { width: 100%; min-height: 100vh; display: flex; flex-direction: column; padding-bottom: 72px; }
+    .hidden { display: none !important; }
+
+    /* ── NAV ── */
+    .bottom-nav {
+      position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
+      width: 100%; max-width: 430px; height: 68px; background: var(--green);
+      display: flex; justify-content: space-around; align-items: center; z-index: 2000;
+      border-radius: 20px 20px 0 0; box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
+    }
+    .nav-item {
+      display: flex; flex-direction: column; align-items: center; gap: 3px;
+      cursor: pointer; color: rgba(255,255,255,0.4); border: none; background: none;
+      font-family: inherit; padding: 6px 16px; border-radius: 12px;
+      transition: color 150ms, transform 150ms;
+    }
+    .nav-item.active { color: var(--yellow); transform: scale(1.08); }
+    .nav-item svg  { width: 26px; height: 26px; fill: currentColor; }
+    .nav-item span { font-size: 10px; font-weight: 700; }
+
+    /* ── BUTTONS ── */
+    .btn {
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      border: none; cursor: pointer; font-family: inherit; font-weight: 800;
+      border-radius: 99px; transition: transform 120ms, filter 120ms;
+    }
+    .btn:hover  { filter: brightness(1.06); }
+    .btn:active { transform: scale(0.95); }
+    .btn-green { background: var(--lime);   color: #fff; font-size: 16px; height: 52px; width: 100%; box-shadow: 0 4px 14px rgba(141,194,31,0.4); }
+    .back-btn { background: none; border: none; color: #fff; font-size: 26px; cursor: pointer; padding: 0; line-height: 1; opacity: 0.85; }
+
+    /* ══ HOME ══ */
+    #screen-home {
+      justify-content: space-between; align-items: center; padding: 28px 20px 80px;
+      background: linear-gradient(180deg, #e8f5d0 0%, var(--cream) 60%);
+      position: relative; overflow: hidden;
+    }
+    .deco { position: absolute; pointer-events: none; user-select: none; }
+    .season-banner {
+      background: var(--orange); color: #fff; font-size: 13px; font-weight: 800;
+      padding: 6px 18px; border-radius: 99px; box-shadow: 0 4px 12px rgba(230,51,18,0.3);
+    }
+    .mascot-area { text-align: center; }
+    .mascot-bubble {
+      display: inline-block; background: #fff; border-radius: 20px;
+      padding: 12px 20px; margin-bottom: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+      position: relative; font-size: 15px; font-weight: 700; color: var(--dark);
+      max-width: 300px; line-height: 1.6;
+    }
+    .mascot-bubble::after {
+      content: ''; position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%);
+      border: 10px solid transparent; border-top-color: #fff; border-bottom: none;
+    }
+    .mascot-face { font-size: 64px; display: block; margin-top: 4px; animation: float 2.5s ease-in-out infinite; }
+    @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+
+    .app-title { font-size: 30px; font-weight: 900; color: var(--dark); text-align: center; margin-top: 14px; }
+    .app-sub   { font-size: 12px; font-weight: 700; color: var(--green); text-align: center; margin-top: 4px; letter-spacing: 0.1em; }
+
+    .scan-wrap { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+    .scan-ring-wrap { position: relative; width: 180px; height: 180px; display: flex; align-items: center; justify-content: center; }
+    .ring { position: absolute; width: 180px; height: 180px; border-radius: 50%; border: 4px solid var(--lime); animation: ring 2s ease-out infinite; opacity: 0; }
+    .ring:nth-child(2) { animation-delay: 0.66s; }
+    .ring:nth-child(3) { animation-delay: 1.32s; }
+    @keyframes ring { 0% { transform: scale(0.8); opacity: 0.9; } 100% { transform: scale(1.7); opacity: 0; } }
+    .scan-btn {
+      position: relative; z-index: 1; width: 148px; height: 148px; border-radius: 50%;
+      background: var(--orange); border: none; color: #fff; font-family: inherit;
+      font-size: 15px; font-weight: 800; cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+      box-shadow: 0 8px 32px rgba(230,51,18,0.45);
+      transition: transform 150ms cubic-bezier(0.34,1.56,0.64,1), filter 150ms;
+    }
+    .scan-btn:hover  { transform: scale(1.05); }
+    .scan-btn:active { transform: scale(0.92); }
+    .scan-btn-icon   { font-size: 36px; }
+    .scan-hint { font-size: 13px; font-weight: 700; color: var(--muted); text-align: center; line-height: 1.7; background: #fff; border-radius: 16px; padding: 10px 20px; }
+
+    .home-progress-card { width: 100%; background: #fff; border-radius: 20px; padding: 16px 20px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); }
+    .progress-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .progress-title { font-size: 14px; font-weight: 800; color: var(--dark); }
+    .progress-num   { font-size: 14px; font-weight: 800; color: var(--lime); }
+    .progress-bg   { background: #eee; border-radius: 99px; height: 10px; overflow: hidden; }
+    .progress-fill { height: 100%; border-radius: 99px; background: linear-gradient(to right, var(--lime), var(--yellow)); transition: width 1s cubic-bezier(0.34,1.56,0.64,1); }
+
+    /* ══ TODAY ══ */
+    #screen-today { padding: 0 0 72px; }
+    .today-header {
+      background: linear-gradient(135deg, var(--green), #4a8c2a);
+      padding: 18px 20px 22px; border-radius: 0 0 28px 28px;
+    }
+    .today-header-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+    .today-title { color: #fff; font-size: 22px; font-weight: 900; }
+    .today-season-badge { margin-left: auto; background: var(--yellow); color: var(--dark); font-size: 12px; font-weight: 800; padding: 5px 12px; border-radius: 99px; }
+    .today-desc { font-size: 14px; font-weight: 700; color: rgba(255,255,255,0.85); line-height: 1.7; }
+
+    .today-veg-list { padding: 20px 20px 0; display: flex; flex-direction: column; gap: 14px; }
+
+    .quest-card {
+      background: #fff; border-radius: var(--radius); padding: 16px 18px;
+      display: flex; align-items: center; gap: 16px; box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+      cursor: pointer; border: 3px solid #eee;
+      opacity: 0; transform: translateY(30px);
+      transition: border-color 200ms, transform 150ms;
+    }
+    .quest-card.visible { animation: cardIn 0.45s cubic-bezier(0.34,1.56,0.64,1) forwards; }
+    .quest-card:active { transform: scale(0.97); }
+    @keyframes cardIn { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+
+    .quest-card.solved { border-color: var(--lime); background: #f8fce8; }
+    .quest-emoji {
+      width: 64px; height: 64px; border-radius: 16px; flex-shrink: 0;
+      background: var(--cream); display: flex; align-items: center; justify-content: center;
+      font-size: 38px; border: 2px solid #eee;
+    }
+    .quest-card.solved .quest-emoji { border: 2px solid var(--lime); background: #fff; }
+    .quest-info { flex: 1; }
+    .quest-name { font-size: 18px; font-weight: 900; color: var(--dark); }
+    .quest-status { font-size: 13px; font-weight: 700; margin-top: 4px; }
+    .quest-status.todo  { color: var(--orange); }
+    .quest-status.done  { color: var(--green); }
+    .quest-arrow { font-size: 22px; color: var(--lime); flex-shrink: 0; }
+
+    .today-footer { padding: 20px; margin-top: auto; }
+    .today-footer-hint { text-align: center; font-size: 13px; font-weight: 700; color: var(--muted); margin-bottom: 12px; }
+
+    /* ══ REVEAL (map) ══ */
+    #screen-reveal { padding: 0; position: relative; }
+    .reveal-header {
+      background: linear-gradient(135deg, var(--green), #4a8c2a);
+      padding: 14px 20px; display: flex; align-items: center; gap: 12px;
+    }
+    .reveal-q { color: #fff; flex: 1; }
+    .reveal-q-emoji { font-size: 18px; }
+    .reveal-q-text  { font-size: 17px; font-weight: 900; }
+
+    #reveal-map { flex: 1; min-height: 400px; }
+
+    .reveal-instruction {
+      position: absolute; top: 70px; left: 50%; transform: translateX(-50%);
+      background: rgba(255,255,255,0.95); border-radius: 99px;
+      padding: 10px 20px; font-size: 14px; font-weight: 800; color: var(--dark);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.15); z-index: 1000; white-space: nowrap;
+      pointer-events: none;
+    }
+
+    .reveal-feedback {
+      position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%) translateY(120%);
+      width: calc(100% - 32px); max-width: 398px;
+      background: #fff; border-radius: 20px; padding: 16px 20px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.2); z-index: 1600;
+      transition: transform 0.35s cubic-bezier(0.34,1.4,0.64,1);
+      text-align: center;
+    }
+    .reveal-feedback.show { transform: translateX(-50%) translateY(0); }
+    .gf-emoji { font-size: 40px; display: block; margin-bottom: 4px; }
+    .gf-title { font-size: 20px; font-weight: 900; margin-bottom: 4px; color: var(--orange); }
+    .gf-hint  { font-size: 14px; font-weight: 700; color: var(--text); line-height: 1.6; margin-bottom: 12px; }
+
+    /* ══ REVEAL SHEET ══ */
+    .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 1400; display: none; }
+    .backdrop.open { display: block; }
+    .sheet {
+      position: fixed; bottom: 68px; left: 50%; transform: translateX(-50%) translateY(100%);
+      width: 100%; max-width: 430px; background: #fff; border-radius: 28px 28px 0 0;
+      z-index: 1500; transition: transform 0.38s cubic-bezier(0.32,0.72,0,1);
+      max-height: 84vh; overflow-y: auto; padding-bottom: 20px;
+    }
+    .sheet.open { transform: translateX(-50%) translateY(0); }
+    .sheet-handle { width: 40px; height: 5px; background: #e0e0e0; border-radius: 3px; margin: 10px auto 0; }
+
+    .sheet-hero { position: relative; width: 100%; height: 180px; overflow: hidden; background: #c8e6b0; }
+    .sheet-hero img { width: 100%; height: 100%; object-fit: cover; }
+    .sheet-hero-overlay { position: absolute; inset: 0; background: linear-gradient(to bottom, transparent 40%, rgba(0,0,0,0.55)); }
+    .sheet-hero-badge { position: absolute; top: 12px; right: 12px; background: var(--yellow); color: var(--dark); font-size: 12px; font-weight: 900; padding: 4px 12px; border-radius: 99px; }
+    .sheet-close-btn { position: absolute; top: 10px; left: 12px; background: rgba(0,0,0,0.35); border: none; border-radius: 50%; width: 34px; height: 34px; color: #fff; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 2; }
+    .sheet-hero-veg { position: absolute; bottom: 12px; left: 16px; display: flex; align-items: center; gap: 10px; }
+    .sheet-hero-emoji { font-size: 40px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4)); }
+    .sheet-hero-name { font-size: 22px; font-weight: 900; color: #fff; text-shadow: 0 2px 6px rgba(0,0,0,0.5); }
+    .sheet-hero-pref { font-size: 13px; font-weight: 700; color: var(--yellow); }
+
+    .farmer-card {
+      display: flex; align-items: center; gap: 14px; margin: 16px 16px 0; padding: 14px 16px;
+      background: linear-gradient(135deg, #f0f8e8, #e8f5d0); border-radius: 18px; border: 2px solid var(--lime);
+    }
+    .farmer-avatar { width: 64px; height: 64px; border-radius: 50%; flex-shrink: 0; background: var(--green); display: flex; align-items: center; justify-content: center; font-size: 34px; border: 3px solid #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+    .farmer-name { font-size: 18px; font-weight: 900; color: var(--dark); }
+    .farmer-loc  { font-size: 12px; font-weight: 700; color: var(--green); margin-top: 3px; }
+    .farmer-crop { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+    .farmer-message { margin: 12px 16px 0; padding: 14px 16px; background: #fff; border-radius: 0 18px 18px 18px; border: 2px solid #eee; position: relative; font-size: 14px; font-weight: 700; color: var(--text); line-height: 1.7; }
+    .farmer-message::before { content: ''; position: absolute; top: -12px; left: 16px; border: 10px solid transparent; border-bottom-color: #eee; border-top: none; }
+    .farmer-message::after  { content: ''; position: absolute; top: -9px; left: 18px; border: 8px solid transparent; border-bottom-color: #fff; border-top: none; }
+    .message-icon { font-size: 18px; margin-right: 6px; }
+
+    .scene-gallery { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 14px 16px 0; }
+    .scene-img { width: 100%; height: 90px; object-fit: cover; border-radius: 12px; background: #c8e6b0; }
+
+    .sheet-section { margin: 18px 16px 0; }
+    .section-tag { font-size: 13px; font-weight: 900; color: var(--green); margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
+    .section-tag::after { content: ''; flex: 1; height: 2px; background: #eee; margin-left: 6px; }
+
+    /* なぞとき clues */
+    .clue-row { display: flex; gap: 8px; }
+    .clue-card {
+      flex: 1; aspect-ratio: 1; perspective: 600px; cursor: pointer;
+    }
+    .clue-inner { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform 0.5s cubic-bezier(0.34,1.56,0.64,1); }
+    .clue-card.open .clue-inner { transform: rotateY(180deg); }
+    .clue-front, .clue-back {
+      position: absolute; inset: 0; backface-visibility: hidden; border-radius: 14px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 8px; text-align: center;
+    }
+    .clue-front { background: var(--cream); border: 2px dashed var(--lime); }
+    .clue-front-icon { font-size: 28px; }
+    .clue-front-q    { font-size: 11px; font-weight: 800; color: var(--muted); margin-top: 4px; }
+    .clue-back { background: var(--green); color: #fff; transform: rotateY(180deg); }
+    .clue-back-icon { font-size: 24px; }
+    .clue-back-text { font-size: 11px; font-weight: 800; line-height: 1.4; margin-top: 4px; }
+
+    .clue-result {
+      margin-top: 12px; padding: 12px 16px; background: var(--yellow); border-radius: 14px;
+      font-size: 14px; font-weight: 800; color: var(--dark); line-height: 1.6; text-align: center;
+      opacity: 0; max-height: 0; overflow: hidden; transition: opacity 0.4s, max-height 0.4s, padding 0.4s;
+    }
+    .clue-result.show { opacity: 1; max-height: 140px; }
+
+    /* production */
+    .fact-box { background: #f0f8e8; border: 2px solid var(--lime); border-radius: 14px; padding: 12px 16px; font-size: 14px; font-weight: 800; color: var(--dark); margin-bottom: 12px; line-height: 1.6; }
+    .stat-wrap { background: #f5f5f5; border-radius: 14px; height: 28px; position: relative; margin-bottom: 6px; overflow: hidden; }
+    .stat-fill { height: 100%; border-radius: 14px; background: linear-gradient(to right, var(--lime), var(--yellow)); width: 0%; transition: width 0.8s cubic-bezier(0.34,1.56,0.64,1); }
+    .stat-txt  { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 13px; font-weight: 900; color: var(--dark); }
+    .stat-tons { font-size: 13px; font-weight: 700; color: var(--muted); }
+
+    /* ごちそうさま */
+    .thanks-section { margin: 20px 16px 0; }
+    .thanks-btn {
+      width: 100%; height: 54px; border: none; border-radius: 99px; cursor: pointer;
+      background: var(--orange); color: #fff; font-family: inherit; font-size: 16px; font-weight: 900;
+      box-shadow: 0 6px 18px rgba(230,51,18,0.3); transition: transform 120ms;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .thanks-btn:active { transform: scale(0.96); }
+    .thanks-btn:disabled { background: #ccc; box-shadow: none; }
+    .thanks-reply {
+      margin-top: 12px; padding: 14px 16px; background: #fff5e8; border: 2px solid var(--orange);
+      border-radius: 18px 0 18px 18px; font-size: 14px; font-weight: 700; color: var(--text);
+      line-height: 1.7; text-align: right;
+      opacity: 0; max-height: 0; overflow: hidden; transition: all 0.4s;
+    }
+    .thanks-reply.show { opacity: 1; max-height: 120px; }
+
+    /* ══ DIARY (collection) ══ */
+    #screen-diary { padding: 0 0 72px; }
+    .diary-header { background: linear-gradient(135deg, var(--green), #4a8c2a); padding: 16px 20px 20px; border-radius: 0 0 28px 28px; }
+    .diary-title { color: #fff; font-size: 20px; font-weight: 900; }
+    .diary-sub   { color: var(--yellow); font-size: 12px; font-weight: 700; margin-top: 2px; }
+
+    .diary-summary { margin: 16px 16px 0; background: #fff; border-radius: var(--radius); padding: 16px 20px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); }
+    .diary-summary-row { display: flex; align-items: center; gap: 14px; }
+    .diary-mascot { font-size: 44px; animation: float 2.5s ease-in-out infinite; }
+    .diary-summary-text { flex: 1; }
+    .diary-count-big { font-size: 22px; font-weight: 900; color: var(--dark); }
+    .diary-count-big span { color: var(--orange); }
+    .diary-count-sub { font-size: 12px; font-weight: 700; color: var(--muted); margin-top: 2px; }
+
+    .diary-season-teaser {
+      margin: 12px 16px 0; padding: 14px 18px;
+      background: linear-gradient(135deg, #fff0e0, #ffe0c8); border-radius: var(--radius);
+      border: 2px dashed var(--orange); display: flex; align-items: center; gap: 12px;
+    }
+    .teaser-icon { font-size: 32px; }
+    .teaser-text { font-size: 13px; font-weight: 800; color: var(--dark); line-height: 1.5; }
+
+    .diary-list { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+    .diary-entry {
+      background: #fff; border-radius: var(--radius); padding: 14px 16px;
+      display: flex; align-items: center; gap: 14px; box-shadow: 0 3px 12px rgba(0,0,0,0.07);
+      cursor: pointer; border-left: 6px solid var(--lime);
+    }
+    .diary-entry:active { transform: scale(0.98); }
+    .diary-entry-emoji { font-size: 38px; flex-shrink: 0; }
+    .diary-entry-info  { flex: 1; }
+    .diary-entry-name  { font-size: 16px; font-weight: 900; color: var(--dark); }
+    .diary-entry-meta  { font-size: 12px; font-weight: 700; color: var(--green); margin-top: 3px; }
+    .diary-entry-date  { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .diary-entry-arrow { font-size: 18px; color: var(--lime); }
+
+    .diary-empty { text-align: center; padding: 40px 24px; color: var(--muted); }
+    .diary-empty-face { font-size: 56px; display: block; margin-bottom: 12px; }
+    .diary-empty-text { font-size: 15px; font-weight: 700; line-height: 1.7; }
+
+    .diary-locked-section { padding: 0 16px; }
+    .diary-locked-title { font-size: 13px; font-weight: 800; color: var(--muted); margin-bottom: 10px; }
+    .diary-locked-grid { display: flex; gap: 10px; flex-wrap: wrap; }
+    .locked-chip { background: #fafafa; border: 2px dashed #ddd; border-radius: 16px; padding: 12px 16px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .locked-chip-q    { font-size: 28px; }
+    .locked-chip-text { font-size: 11px; font-weight: 700; color: var(--muted); }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ══ HOME ══ -->
+  <div id="screen-home" class="screen">
+    <span class="deco" style="font-size:80px;top:20px;right:-10px;opacity:0.08;transform:rotate(18deg)">🍃</span>
+    <span class="deco" style="font-size:64px;top:110px;left:-8px;opacity:0.08;transform:rotate(-14deg)">🌿</span>
+    <span class="deco" style="font-size:60px;bottom:160px;right:-4px;opacity:0.07;transform:rotate(10deg)">🍄</span>
+    <span class="deco" style="font-size:60px;bottom:140px;left:-4px;opacity:0.08;transform:rotate(-20deg)">🌱</span>
+
+    <div class="season-banner" id="home-season">🍛 きょうは カレーのミールキット</div>
+
+    <div class="mascot-area">
+      <div class="mascot-bubble" id="home-bubble">
+        こんばんは！<br>今夜のカレーの野菜たち、<br>どこからきたのか しらべてみよう🔍
+      </div>
+      <span class="mascot-face">🥦</span>
+      <div class="app-title">産地マップ</div>
+      <div class="app-sub">🌱 SANCHI MAP 🌱</div>
+    </div>
+
+    <div class="scan-wrap">
+      <div class="scan-ring-wrap">
+        <div class="ring"></div><div class="ring"></div><div class="ring"></div>
+        <button class="scan-btn" onclick="startToday()">
+          <span class="scan-btn-icon">📦</span>
+          今夜の食材を<br>しらべる！
+        </button>
+      </div>
+      <div class="scan-hint">野菜のタグをスマホにかざすか<br>ボタンをタップしてね</div>
+    </div>
+
+    <div class="home-progress-card">
+      <div class="progress-top">
+        <span class="progress-title">🌿 であった野菜</span>
+        <span class="progress-num" id="home-count">0 / 3 種類</span>
+      </div>
+      <div class="progress-bg"><div class="progress-fill" id="home-fill" style="width:0%"></div></div>
+    </div>
+  </div>
+
+  <!-- ══ TODAY ══ -->
+  <div id="screen-today" class="screen hidden">
+    <div class="today-header">
+      <div class="today-header-row">
+        <button class="back-btn" onclick="showScreen('home')">←</button>
+        <div class="today-title">📦 今夜の食材</div>
+        <span class="today-season-badge" id="today-season">🍛 カレー</span>
+      </div>
+      <div class="today-desc">野菜のタグをかざすか、カードをタップ。どこでとれたか見てみよう！</div>
+    </div>
+    <div class="today-veg-list" id="today-veg-list"></div>
+    <div class="today-footer">
+      <div class="today-footer-hint" id="today-footer-hint">ぜんぶしらべたら 日記にのこるよ📖</div>
+    </div>
+  </div>
+
+  <!-- ══ REVEAL ══ -->
+  <div id="screen-reveal" class="screen hidden" style="padding-bottom:0">
+    <div class="reveal-header">
+      <button class="back-btn" onclick="navTo('today')">←</button>
+      <div class="reveal-q">
+        <span class="reveal-q-emoji" id="reveal-emoji">🥕</span>
+        <span class="reveal-q-text" id="reveal-text">さんちを しらべるよ！</span>
+      </div>
+    </div>
+    <div class="reveal-instruction" id="reveal-instruction">🚜 さんちに とんでいくよ…</div>
+    <div id="reveal-map"></div>
+  </div>
+
+  <!-- reveal feedback -->
+  <div class="reveal-feedback" id="reveal-feedback">
+    <span class="gf-emoji" id="gf-emoji">🎉</span>
+    <div class="gf-title" id="gf-title">ここでとれたよ！</div>
+    <div class="gf-hint" id="gf-hint"></div>
+    <button class="btn btn-green" id="gf-btn" style="width:auto;padding:0 28px;height:46px">農家さんに会う →</button>
+  </div>
+
+  <!-- ══ DIARY ══ -->
+  <div id="screen-diary" class="screen hidden">
+    <div class="diary-header">
+      <div class="diary-title">📖 たべたもの日記</div>
+      <div class="diary-sub">MY FOOD DIARY</div>
+    </div>
+
+    <div class="diary-summary">
+      <div class="diary-summary-row">
+        <span class="diary-mascot">🥦</span>
+        <div class="diary-summary-text">
+          <div class="diary-count-big"><span id="diary-count">0</span>しゅるいの野菜にであったよ</div>
+          <div class="diary-count-sub" id="diary-encourage">野菜をしらべて 日記をふやそう！</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="diary-season-teaser" id="diary-teaser">
+      <span class="teaser-icon">🍂</span>
+      <div class="teaser-text">つぎのミールキットで<br>あたらしい野菜にであえるよ。おたのしみに！</div>
+    </div>
+
+    <div class="diary-list" id="diary-list"></div>
+
+    <div class="diary-locked-section" id="diary-locked-section">
+      <div class="diary-locked-title">🔍 まだであっていない野菜</div>
+      <div class="diary-locked-grid" id="diary-locked-grid"></div>
+    </div>
+  </div>
+
+  <!-- ══ REVEAL SHEET ══ -->
+  <div class="backdrop" id="backdrop" onclick="closeSheet()"></div>
+  <div class="sheet" id="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-hero">
+      <img id="s-hero" src="" alt="" onerror="this.style.display='none'">
+      <div class="sheet-hero-overlay"></div>
+      <button class="sheet-close-btn" onclick="closeSheet()">✕</button>
+      <span class="sheet-hero-badge" id="s-pref-badge"></span>
+      <div class="sheet-hero-veg">
+        <span class="sheet-hero-emoji" id="s-emoji"></span>
+        <div>
+          <div class="sheet-hero-name" id="s-name"></div>
+          <div class="sheet-hero-pref" id="s-pref"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="farmer-card">
+      <div class="farmer-avatar" id="s-avatar"></div>
+      <div>
+        <div class="farmer-name" id="s-farmer"></div>
+        <div class="farmer-loc"  id="s-loc"></div>
+        <div class="farmer-crop" id="s-crop"></div>
+      </div>
+    </div>
+
+    <div class="farmer-message"><span class="message-icon">💬</span><span id="s-message"></span></div>
+
+    <div class="scene-gallery">
+      <img class="scene-img" id="s-scene1" src="" alt="農場の様子">
+      <img class="scene-img" id="s-scene2" src="" alt="農場の様子">
+    </div>
+
+    <!-- なぞとき -->
+    <div class="sheet-section">
+      <div class="section-tag" id="s-clue-q">🤔 なんで ここで作れるの？</div>
+      <div class="clue-row" id="s-clue-row"></div>
+      <div class="clue-result" id="s-clue-result"></div>
+    </div>
+
+    <!-- 生産量 -->
+    <div class="sheet-section">
+      <div class="section-tag">📊 生産量データ</div>
+      <div class="fact-box" id="s-fact"></div>
+      <div class="stat-wrap"><div class="stat-fill" id="s-bar"></div><span class="stat-txt" id="s-pct"></span></div>
+      <div class="stat-tons">年間生産量：<strong id="s-tons"></strong></div>
+    </div>
+
+    <!-- ごちそうさま -->
+    <div class="thanks-section">
+      <button class="thanks-btn" id="s-thanks-btn" onclick="sendThanks()">
+        💌 <span id="s-thanks-label">「ごちそうさま」をおくる</span>
+      </button>
+      <div class="thanks-reply" id="s-thanks-reply"></div>
+    </div>
+  </div>
+
+  <!-- ══ NAV ══ -->
+  <nav class="bottom-nav">
+    <button class="nav-item active" id="nav-home" onclick="navTo('home')">
+      <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+      <span>ホーム</span>
+    </button>
+    <button class="nav-item" id="nav-today" onclick="navTo('today')">
+      <svg viewBox="0 0 24 24"><path d="M11 9H9V2H7v7H5V2H3v7c0 2.12 1.66 3.84 3.75 3.97V22h2.5v-9.03C11.34 12.84 13 11.12 13 9V2h-2v7zm5-3v8h2.5v8H21V2c-2.76 0-5 2.24-5 4z"/></svg>
+      <span>今夜の食材</span>
+    </button>
+    <button class="nav-item" id="nav-diary" onclick="navTo('diary')">
+      <svg viewBox="0 0 24 24"><path d="M18 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 4h5v8l-2.5-1.5L6 12V4z"/></svg>
+      <span>たべた日記</span>
+    </button>
+  </nav>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ═══════════ DATA ═══════════
+const VEGS = [
+  {
+    id:'carrot', name:'にんじん', emoji:'🥕', prefecture:'千葉県',
+    lat:35.73, lng:140.34,
+    clues:[
+      {icon:'🏖️', q:'土は？',   back:'🏖️', text:'やわらかい土'},
+      {icon:'🌡️', q:'気候は？', back:'🌡️', text:'あたたかい'},
+      {icon:'🚜', q:'まわりは？', back:'🚜', text:'広い畑'}
+    ],
+    clueResult:'やわらかくて深い土と、あたたかい気候。だから千葉では まっすぐ太いにんじんが育つんだ！',
+    farm:{
+      name:'高橋 さとし', avatar:'👨‍🌾', loc:'千葉県 富里市', crop:'にんじん（向陽二号）',
+      message:'やわらかい土で にんじんを育てているよ。土の中でまっすぐ大きくなるんだ。生でかじると あまいよ！🥕',
+      reply:'カレーに入れて たべてくれてありがとう！またね😊',
+      hero:'https://images.unsplash.com/photo-1598170845058-32b9d6a5da37?w=800&q=80',
+      scenes:['https://images.unsplash.com/photo-1447175008436-054170c2e979?w=400&q=80','https://images.unsplash.com/photo-1582515073490-39981397c90a?w=400&q=80']
+    },
+    prod:{share:18, tons:'10万トン', fact:'千葉は北海道とならぶ にんじんの名産地なんだ！'}
+  },
+  {
+    id:'potato', name:'じゃがいも', emoji:'🥔', prefecture:'北海道',
+    lat:43.5, lng:142.5,
+    clues:[
+      {icon:'🏔️', q:'土地は？', back:'🏔️', text:'ひろい大地'},
+      {icon:'❄️', q:'気候は？', back:'❄️', text:'すずしい'},
+      {icon:'💧', q:'水は？',   back:'💧', text:'雪どけ水'}
+    ],
+    clueResult:'ひろくてすずしい大地と、雪どけ水。だから北海道はじゃがいも作りにぴったり！',
+    farm:{
+      name:'田中 一郎', avatar:'👨‍🌾', loc:'北海道 上川郡 美瑛町', crop:'男爵いも / きたあかり',
+      message:'広い畑で育てたじゃがいもだよ！雪どけ水と火山の土がおいしさのひみつ。今年もいっぱいとれたよ♪',
+      reply:'たべてくれてありがとう！またあえるのを楽しみにしてるね😊',
+      hero:'https://images.unsplash.com/photo-1500937386664-56d1dfef3854?w=800&q=80',
+      scenes:['https://images.unsplash.com/photo-1464226184884-fa280b87c399?w=400&q=80','https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=400&q=80']
+    },
+    prod:{share:79, tons:'189万トン', fact:'日本のじゃがいもの約8割は北海道産！すごい！'}
+  },
+  {
+    id:'onion', name:'玉ねぎ', emoji:'🧅', prefecture:'兵庫県',
+    lat:34.42, lng:134.92,
+    clues:[
+      {icon:'🌊', q:'場所は？', back:'🌊', text:'島（淡路島）'},
+      {icon:'☀️', q:'お日さま？', back:'☀️', text:'いっぱい'},
+      {icon:'💨', q:'風は？',   back:'💨', text:'うみ風'}
+    ],
+    clueResult:'うみに囲まれた島の、あたたかい気候とうみ風。だから淡路島の玉ねぎは あまくてやわらかいんだ！',
+    farm:{
+      name:'岡田 けい子', avatar:'👩‍🌾', loc:'兵庫県 淡路市', crop:'淡路島たまねぎ',
+      message:'うみに囲まれた淡路島で 玉ねぎを育てているよ。じっくり育てるから あまくて、いためると とろとろになるんだ🧅',
+      reply:'カレーがあまくなったでしょ？たべてくれてありがとう💕',
+      hero:'https://images.unsplash.com/photo-1518977956812-cd3dbadaaf31?w=800&q=80',
+      scenes:['https://images.unsplash.com/photo-1580201092675-a0a6a6cafbb1?w=400&q=80','https://images.unsplash.com/photo-1508747703725-719777637510?w=400&q=80']
+    },
+    prod:{share:8, tons:'9万トン', fact:'淡路島の玉ねぎは あまいことで日本中に知られているよ！'}
+  }
+];
+
+const TODAY_IDS = ['carrot','potato','onion'];
+const todayVegs = TODAY_IDS.map(id => VEGS.find(v => v.id === id));
+
+const STORAGE_KEY = 'sanchi_diary_v1';   // { id: {date, thanked} }
+function loadDiary() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch { return {}; } }
+function saveDiary(d) { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); }
+function isSolved(id) { return !!loadDiary()[id]; }
+
+// ═══════════ NAV ═══════════
+const ALL_SCREENS = ['home','today','reveal','diary'];
+function showScreen(name) {
+  ALL_SCREENS.forEach(s => document.getElementById('screen-'+s).classList.toggle('hidden', s !== name));
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  const map = { home:'home', today:'today', reveal:'today', diary:'diary' };
+  const n = document.getElementById('nav-'+(map[name]||name));
+  if (n) n.classList.add('active');
+  closeSheet();
+  hideFeedback();
+}
+function navTo(name) {
+  if (name === 'diary') renderDiary();
+  if (name === 'today') renderToday();
+  showScreen(name);
+}
+
+// ═══════════ HOME ═══════════
+function updateHome() {
+  const solved = Object.keys(loadDiary()).length;
+  const pct = Math.round(solved / VEGS.length * 100);
+  document.getElementById('home-count').textContent = solved + ' / ' + VEGS.length + ' 種類';
+  document.getElementById('home-fill').style.width  = pct + '%';
+}
+function startToday() { renderToday(); showScreen('today'); }
+
+// ═══════════ TODAY ═══════════
+function renderToday() {
+  const list = document.getElementById('today-veg-list');
+  list.innerHTML = todayVegs.map((veg, i) => {
+    const solved = isSolved(veg.id);
+    return `
+    <div class="quest-card ${solved ? 'solved' : ''}" id="qcard-${i}"
+         onclick="${solved ? `openSheet('${veg.id}')` : `startReveal('${veg.id}')`}">
+      <div class="quest-emoji">${veg.emoji}</div>
+      <div class="quest-info">
+        <div class="quest-name">${veg.name}</div>
+        <div class="quest-status ${solved ? 'done' : 'todo'}">
+          ${solved ? '🎉 ' + veg.prefecture + 'でとれたよ！' : 'タップして さんちを見る →'}
+        </div>
+      </div>
+      <div class="quest-arrow">›</div>
+    </div>`;
+  }).join('');
+
+  todayVegs.forEach((_, i) => setTimeout(() => {
+    document.getElementById('qcard-'+i)?.classList.add('visible');
+  }, 80 + i * 180));
+
+  const allSolved = todayVegs.every(v => isSolved(v.id));
+  document.getElementById('today-footer-hint').textContent =
+    allSolved ? '🎉 ぜんぶしらべた！カレーの野菜たちに会えたね' : 'ぜんぶしらべたら 日記にのこるよ📖';
+}
+
+// ═══════════ REVEAL (map fly to origin) ═══════════
+let revealMap = null, revealMapReady = false;
+let revealVeg = null, revealMarker = null;
+
+function initRevealMap() {
+  if (revealMapReady) return;
+  revealMapReady = true;
+  revealMap = L.map('reveal-map', { zoomControl:false, scrollWheelZoom:false, dragging:true }).setView([37.5,137.5],5);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution:'© OpenStreetMap contributors', maxZoom:10
+  }).addTo(revealMap);
+}
+
+function startReveal(vegId) {
+  revealVeg = VEGS.find(v => v.id === vegId);
+  if (!revealVeg) return;
+  showScreen('reveal');
+  document.getElementById('reveal-emoji').textContent = revealVeg.emoji;
+  document.getElementById('reveal-text').textContent  = 'この' + revealVeg.name + '、どこでとれた？';
+  document.getElementById('reveal-instruction').style.display = '';
+  document.getElementById('reveal-instruction').textContent = '🚜 さんちに とんでいくよ…';
+  hideFeedback();
+
+  setTimeout(() => {
+    initRevealMap();
+    revealMap.invalidateSize();
+    revealMap.setView([37.5,137.5],5);
+    if (revealMarker) { revealMap.removeLayer(revealMarker); revealMarker = null; }
+    // fly to origin
+    setTimeout(() => {
+      revealMap.flyTo([revealVeg.lat, revealVeg.lng], 6, { duration: 1.6 });
+    }, 500);
+    setTimeout(dropMarker, 2200);
+  }, 100);
+}
+
+function dropMarker() {
+  const v = revealVeg;
+  const icon = L.divIcon({
+    html:`<div style="
+      width:56px;height:56px;border-radius:50%;background:#fff;
+      display:flex;align-items:center;justify-content:center;font-size:28px;
+      border:4px solid var(--green);box-shadow:0 6px 20px rgba(0,0,0,0.3);
+      animation:pinDrop 0.5s cubic-bezier(0.34,1.56,0.64,1)
+    ">${v.emoji}</div>
+    <div style="text-align:center;margin-top:4px;background:var(--green);color:#fff;
+      font-family:inherit;font-size:11px;font-weight:800;padding:3px 8px;border-radius:99px;
+      white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.2)">${v.prefecture}</div>
+    <style>@keyframes pinDrop{from{transform:scale(0) translateY(-30px);opacity:0}to{transform:scale(1) translateY(0);opacity:1}}</style>`,
+    className:'', iconSize:[56,80], iconAnchor:[28,80]
+  });
+  if (revealMarker) revealMap.removeLayer(revealMarker);
+  revealMarker = L.marker([v.lat, v.lng], { icon }).addTo(revealMap);
+  document.getElementById('reveal-instruction').style.display = 'none';
+  launchHarvest();
+
+  // record discovery
+  const d = loadDiary();
+  if (!d[v.id]) {
+    const now = new Date();
+    d[v.id] = { date: (now.getMonth()+1)+'/'+now.getDate(), thanked:false };
+    saveDiary(d);
+  }
+  updateHome();
+
+  showFeedback({
+    emoji: '📍',
+    title: v.prefecture + 'でとれたよ！',
+    hint: v.prefecture + 'の' + v.farm.name + 'さんが作ったよ。<br>のぞいてみよう！',
+    btnLabel: '農家さんに会う →',
+    btnAction: () => { hideFeedback(); openSheet(v.id); }
+  });
+}
+
+// feedback toast
+function showFeedback({emoji,title,hint,btnLabel,btnAction}) {
+  document.getElementById('gf-emoji').textContent = emoji;
+  document.getElementById('gf-title').textContent = title;
+  document.getElementById('gf-hint').innerHTML = hint;
+  const btn = document.getElementById('gf-btn');
+  btn.textContent = btnLabel;
+  btn.onclick = btnAction;
+  document.getElementById('reveal-feedback').classList.add('show');
+}
+function hideFeedback() { document.getElementById('reveal-feedback')?.classList.remove('show'); }
+
+function launchHarvest() {
+  const emojis = ['✨','🌿','🎉','⭐','🍃'];
+  for (let i=0;i<12;i++) {
+    setTimeout(() => {
+      const s = document.createElement('div');
+      s.textContent = emojis[i%emojis.length];
+      s.style.cssText = `position:fixed;font-size:24px;pointer-events:none;z-index:3001;
+        left:${20+Math.random()*60}%;top:40%;
+        animation:hf 1.3s ease-out forwards;`;
+      document.body.appendChild(s);
+      setTimeout(()=>s.remove(),1400);
+    }, i*60);
+  }
+}
+
+// ═══════════ REVEAL SHEET ═══════════
+let sheetVeg = null;
+function openSheet(id) {
+  const veg = VEGS.find(v => v.id === id);
+  if (!veg) return;
+  sheetVeg = veg;
+
+  document.getElementById('s-hero').src = veg.farm.hero;
+  document.getElementById('s-hero').style.display = '';
+  document.getElementById('s-emoji').textContent      = veg.emoji;
+  document.getElementById('s-name').textContent       = veg.name;
+  document.getElementById('s-pref').textContent       = '📍 ' + veg.farm.loc;
+  document.getElementById('s-pref-badge').textContent = veg.prefecture;
+  document.getElementById('s-avatar').textContent  = veg.farm.avatar;
+  document.getElementById('s-farmer').textContent  = veg.farm.name;
+  document.getElementById('s-loc').textContent     = veg.farm.loc;
+  document.getElementById('s-crop').textContent    = '🌱 ' + veg.farm.crop;
+  document.getElementById('s-message').textContent = veg.farm.message;
+  document.getElementById('s-scene1').src = veg.farm.scenes[0];
+  document.getElementById('s-scene2').src = veg.farm.scenes[1];
+
+  // なぞとき clues
+  document.getElementById('s-clue-q').textContent = '🤔 なんで ' + veg.prefecture + 'で作れるの？';
+  document.getElementById('s-clue-row').innerHTML = veg.clues.map((c,i) => `
+    <div class="clue-card" id="clue-${i}" onclick="flipClue(${i})">
+      <div class="clue-inner">
+        <div class="clue-front">
+          <span class="clue-front-icon">${c.icon}</span>
+          <span class="clue-front-q">${c.q}</span>
+        </div>
+        <div class="clue-back">
+          <span class="clue-back-icon">${c.back}</span>
+          <span class="clue-back-text">${c.text}</span>
+        </div>
+      </div>
+    </div>`).join('');
+  const res = document.getElementById('s-clue-result');
+  res.classList.remove('show');
+  res.textContent = '💡 ' + veg.clueResult;
+  clueOpened = new Set();
+
+  document.getElementById('s-fact').textContent = '💡 ' + veg.prod.fact;
+  document.getElementById('s-pct').textContent  = veg.prod.share + '%';
+  document.getElementById('s-tons').textContent = veg.prod.tons;
+  const bar = document.getElementById('s-bar');
+  bar.style.width = '0%';
+  setTimeout(() => { bar.style.width = veg.prod.share + '%'; }, 300);
+
+  // thanks state
+  const diary = loadDiary();
+  const thanked = diary[id] && diary[id].thanked;
+  const tbtn = document.getElementById('s-thanks-btn');
+  const treply = document.getElementById('s-thanks-reply');
+  if (thanked) {
+    document.getElementById('s-thanks-label').textContent = 'ごちそうさまを おくったよ！';
+    tbtn.disabled = true;
+    treply.textContent = '💬 ' + veg.farm.reply;
+    treply.classList.add('show');
+  } else {
+    document.getElementById('s-thanks-label').textContent = '「ごちそうさま」をおくる';
+    tbtn.disabled = false;
+    treply.classList.remove('show');
+    treply.textContent = '';
+  }
+
+  document.getElementById('sheet').classList.add('open');
+  document.getElementById('backdrop').classList.add('open');
+}
+function closeSheet() {
+  document.getElementById('sheet').classList.remove('open');
+  document.getElementById('backdrop').classList.remove('open');
+}
+
+let clueOpened = new Set();
+function flipClue(i) {
+  const card = document.getElementById('clue-'+i);
+  if (!card || card.classList.contains('open')) return;
+  card.classList.add('open');
+  clueOpened.add(i);
+  if (clueOpened.size === sheetVeg.clues.length) {
+    setTimeout(() => document.getElementById('s-clue-result').classList.add('show'), 300);
+  }
+}
+
+function sendThanks() {
+  if (!sheetVeg) return;
+  const d = loadDiary();
+  if (!d[sheetVeg.id]) d[sheetVeg.id] = { date:'', thanked:false };
+  d[sheetVeg.id].thanked = true;
+  saveDiary(d);
+
+  document.getElementById('s-thanks-label').textContent = 'ごちそうさまを おくったよ！';
+  document.getElementById('s-thanks-btn').disabled = true;
+  const treply = document.getElementById('s-thanks-reply');
+  treply.textContent = '💬 ' + sheetVeg.farm.reply;
+  setTimeout(() => treply.classList.add('show'), 200);
+  launchHearts();
+}
+
+function launchHearts() {
+  const emojis = ['💌','💚','✨','🌿','😊'];
+  for (let i=0;i<10;i++) {
+    setTimeout(() => {
+      const s = document.createElement('div');
+      s.textContent = emojis[i%emojis.length];
+      s.style.cssText = `position:fixed;font-size:24px;pointer-events:none;z-index:3001;
+        left:${30+Math.random()*40}%;bottom:120px;
+        animation:hf 1.3s ease-out forwards;`;
+      document.body.appendChild(s);
+      setTimeout(()=>s.remove(),1400);
+    }, i*70);
+  }
+}
+
+// ═══════════ DIARY ═══════════
+function renderDiary() {
+  const diary = loadDiary();
+  const solvedIds = Object.keys(diary);
+  document.getElementById('diary-count').textContent = solvedIds.length;
+  document.getElementById('diary-encourage').textContent =
+    solvedIds.length === 0 ? '野菜をしらべて 日記をふやそう！' :
+    solvedIds.length >= VEGS.length ? 'カレーの野菜 ぜんぶにであえたね！はかせだ🏆' :
+    'いろんな土地の野菜にであえたね！';
+
+  const list = document.getElementById('diary-list');
+  if (solvedIds.length === 0) {
+    list.innerHTML = `<div class="diary-empty">
+      <span class="diary-empty-face">🌱</span>
+      <div class="diary-empty-text">まだ日記はからっぽ。<br>今夜の食材をしらべてみよう！</div>
+    </div>`;
+  } else {
+    list.innerHTML = VEGS.filter(v => diary[v.id]).map(veg => {
+      const e = diary[veg.id];
+      return `<div class="diary-entry" onclick="openSheet('${veg.id}')">
+        <span class="diary-entry-emoji">${veg.emoji}</span>
+        <div class="diary-entry-info">
+          <div class="diary-entry-name">${veg.name}</div>
+          <div class="diary-entry-meta">📍 ${veg.prefecture}・${veg.farm.name}さん ${e.thanked ? '💌' : ''}</div>
+          <div class="diary-entry-date">${e.date ? e.date + ' にであった' : ''}</div>
+        </div>
+        <span class="diary-entry-arrow">›</span>
+      </div>`;
+    }).join('');
+  }
+
+  // locked
+  const locked = VEGS.filter(v => !diary[v.id]);
+  const sec = document.getElementById('diary-locked-section');
+  if (locked.length === 0) {
+    sec.style.display = 'none';
+    document.getElementById('diary-teaser').style.display = '';
+  } else {
+    sec.style.display = '';
+    document.getElementById('diary-locked-grid').innerHTML = locked.map(() =>
+      `<div class="locked-chip"><span class="locked-chip-q">❓</span><span class="locked-chip-text">？？？</span></div>`
+    ).join('');
+  }
+}
+
+// harvest/heart float keyframe (shared)
+const _kf = document.createElement('style');
+_kf.textContent = '@keyframes hf{0%{transform:translateY(0) scale(0.6);opacity:0}30%{opacity:1}100%{transform:translateY(-120px) scale(1.2);opacity:0}}';
+document.head.appendChild(_kf);
+
+// ═══════════ INIT ═══════════
+(function init() {
+  const params = new URLSearchParams(location.search);
+  const vegId  = params.get('veg');
+  if (vegId && VEGS.find(v => v.id === vegId)) {
+    // NFC / QR タグからの起動 → そのまま産地リビール
+    renderToday();
+    startReveal(vegId);
+    return;
+  }
+  updateHome();
+  showScreen('home');
+})();
+</script>
+</body>
+</html>
