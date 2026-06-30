@@ -353,9 +353,9 @@
     <div class="scan-wrap">
       <div class="scan-ring-wrap">
         <div class="ring"></div><div class="ring"></div><div class="ring"></div>
-        <button class="scan-btn" onclick="startToday()">
+        <button class="scan-btn" onclick="startRevealKit()">
           <span class="scan-btn-icon">📦</span>
-          今夜の食材を<br>しらべる！
+          今夜のキットを<br>しゅうかく！
         </button>
       </div>
       <div class="scan-hint">野菜のタグをスマホにかざすか<br>ボタンをタップしてね</div>
@@ -636,7 +636,7 @@ function renderToday() {
 
 // ═══════════ REVEAL (map fly to origin) ═══════════
 let revealMap = null, revealMapReady = false;
-let revealVeg = null, revealMarker = null;
+let revealVeg = null, revealMarkers = [];
 
 function initRevealMap() {
   if (revealMapReady) return;
@@ -647,6 +647,88 @@ function initRevealMap() {
   }).addTo(revealMap);
 }
 
+function clearRevealMarkers() {
+  revealMarkers.forEach(m => revealMap.removeLayer(m));
+  revealMarkers = [];
+}
+
+function makeVegIcon(v) {
+  return L.divIcon({
+    html:`<div style="
+      width:56px;height:56px;border-radius:50%;background:#fff;
+      display:flex;align-items:center;justify-content:center;font-size:28px;
+      border:4px solid var(--green);box-shadow:0 6px 20px rgba(0,0,0,0.3);
+      animation:pinDrop 0.5s cubic-bezier(0.34,1.56,0.64,1);cursor:pointer
+    ">${v.emoji}</div>
+    <div style="text-align:center;margin-top:4px;background:var(--green);color:#fff;
+      font-family:inherit;font-size:11px;font-weight:800;padding:3px 8px;border-radius:99px;
+      white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.2)">${v.prefecture}</div>
+    <style>@keyframes pinDrop{from{transform:scale(0) translateY(-30px);opacity:0}to{transform:scale(1) translateY(0);opacity:1}}</style>`,
+    className:'', iconSize:[56,80], iconAnchor:[28,80]
+  });
+}
+
+function recordDiscovery(v) {
+  const d = loadDiary();
+  if (!d[v.id]) {
+    const now = new Date();
+    d[v.id] = { date: (now.getMonth()+1)+'/'+now.getDate(), thanked:false };
+    saveDiary(d);
+  }
+  updateHome();
+}
+
+function placeMarker(v) {
+  const m = L.marker([v.lat, v.lng], { icon: makeVegIcon(v) }).addTo(revealMap);
+  m.on('click', () => openSheet(v.id));
+  revealMarkers.push(m);
+  return m;
+}
+
+// ── まとめて収穫（ミールキット1個 → 全産地を順番に着地）──
+function startRevealKit() {
+  showScreen('reveal');
+  document.getElementById('reveal-emoji').textContent = '🍛';
+  document.getElementById('reveal-text').textContent  = '今夜のカレー、しらべるよ！';
+  document.getElementById('reveal-instruction').style.display = '';
+  document.getElementById('reveal-instruction').textContent = '🚜 産地に とんでいくよ…';
+  hideFeedback();
+
+  setTimeout(() => {
+    initRevealMap();
+    revealMap.invalidateSize();
+    revealMap.setView([37.5,137.5],5);
+    clearRevealMarkers();
+    todayVegs.forEach((v, i) => {
+      const last = i === todayVegs.length - 1;
+      setTimeout(() => {
+        placeMarker(v);
+        recordDiscovery(v);
+        launchHarvest();
+        document.getElementById('reveal-instruction').textContent =
+          '📍 ' + v.prefecture + 'で ' + v.name + ' しゅうかく！';
+        if (last) setTimeout(finishKitReveal, 900);
+      }, 700 + i * 1000);
+    });
+  }, 100);
+}
+
+function finishKitReveal() {
+  document.getElementById('reveal-instruction').style.display = 'none';
+  if (revealMarkers.length) {
+    const g = L.featureGroup(revealMarkers);
+    revealMap.fitBounds(g.getBounds().pad(0.35), { animate:true, duration:1 });
+  }
+  showFeedback({
+    emoji: '🎉',
+    title: todayVegs.length + 'つの産地が 見つかった！',
+    hint: 'マーカーを タップすると 農家さんに会えるよ。<br>野菜をくわしく見てみよう！',
+    btnLabel: '野菜をくわしく見る →',
+    btnAction: () => { hideFeedback(); navTo('today'); }
+  });
+}
+
+// ── 単品（野菜1つのタグ）──
 function startReveal(vegId) {
   revealVeg = VEGS.find(v => v.id === vegId);
   if (!revealVeg) return;
@@ -661,8 +743,7 @@ function startReveal(vegId) {
     initRevealMap();
     revealMap.invalidateSize();
     revealMap.setView([37.5,137.5],5);
-    if (revealMarker) { revealMap.removeLayer(revealMarker); revealMarker = null; }
-    // fly to origin
+    clearRevealMarkers();
     setTimeout(() => {
       revealMap.flyTo([revealVeg.lat, revealVeg.lng], 6, { duration: 1.6 });
     }, 500);
@@ -672,32 +753,10 @@ function startReveal(vegId) {
 
 function dropMarker() {
   const v = revealVeg;
-  const icon = L.divIcon({
-    html:`<div style="
-      width:56px;height:56px;border-radius:50%;background:#fff;
-      display:flex;align-items:center;justify-content:center;font-size:28px;
-      border:4px solid var(--green);box-shadow:0 6px 20px rgba(0,0,0,0.3);
-      animation:pinDrop 0.5s cubic-bezier(0.34,1.56,0.64,1)
-    ">${v.emoji}</div>
-    <div style="text-align:center;margin-top:4px;background:var(--green);color:#fff;
-      font-family:inherit;font-size:11px;font-weight:800;padding:3px 8px;border-radius:99px;
-      white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.2)">${v.prefecture}</div>
-    <style>@keyframes pinDrop{from{transform:scale(0) translateY(-30px);opacity:0}to{transform:scale(1) translateY(0);opacity:1}}</style>`,
-    className:'', iconSize:[56,80], iconAnchor:[28,80]
-  });
-  if (revealMarker) revealMap.removeLayer(revealMarker);
-  revealMarker = L.marker([v.lat, v.lng], { icon }).addTo(revealMap);
+  placeMarker(v);
   document.getElementById('reveal-instruction').style.display = 'none';
   launchHarvest();
-
-  // record discovery
-  const d = loadDiary();
-  if (!d[v.id]) {
-    const now = new Date();
-    d[v.id] = { date: (now.getMonth()+1)+'/'+now.getDate(), thanked:false };
-    saveDiary(d);
-  }
-  updateHome();
+  recordDiscovery(v);
 
   showFeedback({
     emoji: '📍',
@@ -903,13 +962,20 @@ document.head.appendChild(_kf);
 (function init() {
   const params = new URLSearchParams(location.search);
   const vegId  = params.get('veg');
+  const kit    = params.get('kit');
+  updateHome();
+  if (kit) {
+    // ミールキットのタグ → まとめて収穫
+    renderToday();
+    startRevealKit();
+    return;
+  }
   if (vegId && VEGS.find(v => v.id === vegId)) {
-    // NFC / QR タグからの起動 → そのまま産地リビール
+    // 野菜単品のタグ → その野菜だけリビール
     renderToday();
     startReveal(vegId);
     return;
   }
-  updateHome();
   showScreen('home');
 })();
 </script>
