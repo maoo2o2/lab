@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>たべまなラボ — 3画面モック</title>
+<link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root{
+    --blue:#1CA7D6; --yellow:#FFD43B; --coral:#FF6F4D; --green:#3F9142;
+    --ink:#1A1A1A; --gray:#8B928F; --hair:#E7E4DE; --bg:#FAFAF7; --white:#fff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+  body{
+    font-family:'M PLUS Rounded 1c','Noto Sans JP',sans-serif;
+    background:#eef2f0; min-height:100vh;
+    display:flex; flex-direction:column; align-items:center; padding:20px 12px 60px;
+  }
+
+  /* ── global tabbar (screen picker, not part of any single app) ── */
+  .picker{
+    display:flex; gap:8px; margin-bottom:18px; background:#fff; padding:6px;
+    border-radius:999px; box-shadow:0 4px 16px rgba(0,0,0,0.08); flex-wrap:wrap; justify-content:center;
+  }
+  .picker button{
+    border:none; background:none; font-family:inherit; font-weight:800; font-size:13px;
+    padding:10px 16px; border-radius:999px; cursor:pointer; color:var(--gray); transition:all .15s;
+  }
+  .picker button.active{ background:var(--ink); color:#fff; }
+
+  .phone{
+    width:100%; max-width:430px; min-height:780px; background:var(--white);
+    border-radius:32px; overflow:hidden; box-shadow:0 12px 40px rgba(0,0,0,0.18);
+    position:relative;
+  }
+  .screen{ display:none; min-height:780px; flex-direction:column; }
+  .screen.active{ display:flex; }
+
+  /* ── QR entry: 本日のメニュー splash ── */
+  .menu-splash{
+    position:absolute; inset:0; z-index:2000; display:none; flex-direction:column;
+    align-items:center; justify-content:center; text-align:center; gap:18px; padding:36px 28px;
+    background:linear-gradient(180deg,#FFF3E9 0%, var(--bg) 60%);
+  }
+  .menu-splash.show{ display:flex; }
+  .menu-splash-eyebrow{ font-size:13px; font-weight:800; color:var(--coral); letter-spacing:.04em; }
+  .menu-splash-title{ font-size:22px; font-weight:900; color:var(--ink); line-height:1.5; }
+  .menu-splash-list{ width:100%; display:flex; flex-direction:column; gap:10px; }
+  .menu-splash-item{
+    background:#fff; border-radius:16px; padding:14px 18px; font-size:17px; font-weight:800;
+    color:var(--ink); box-shadow:0 4px 14px rgba(0,0,0,0.08); display:flex; align-items:center; gap:10px; text-align:left;
+  }
+
+  /* ── shared atoms ── */
+  .pill{ border-radius:999px; }
+  .tag{ display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:800; padding:4px 10px; border-radius:999px; }
+  .tag-blue{ background:#E4F5FA; color:var(--blue); }
+  .tag-coral{ background:#FFEDE7; color:var(--coral); }
+  .tag-green{ background:#EAF5E9; color:var(--green); }
+  .tag-yellow{ background:#FFF7D6; color:#9A7A00; }
+  .btn{ border:none; cursor:pointer; font-family:inherit; font-weight:800; border-radius:999px; transition:transform .12s, filter .12s; }
+  .btn:active{ transform:scale(0.96); }
+  .btn-coral{ background:var(--coral); color:#fff; box-shadow:0 6px 16px rgba(255,111,77,0.35); }
+  .btn-blue{ background:var(--blue); color:#fff; box-shadow:0 6px 16px rgba(28,167,214,0.35); }
+  .btn-outline{ background:#fff; color:var(--ink); border:2px solid var(--hair); }
+  .btn-ghost{ background:none; border:none; color:var(--gray); font-weight:700; font-family:inherit; cursor:pointer; }
+  .bubble{
+    background:#fff; border-radius:18px; padding:12px 16px; font-size:14px; font-weight:700;
+    color:var(--ink); line-height:1.6; box-shadow:0 4px 14px rgba(0,0,0,0.08); position:relative;
+  }
+  .backdrop{ position:absolute; inset:0; background:rgba(0,0,0,0.42); z-index:900; display:none; }
+  .backdrop.open{ display:block; }
+  .sheet{
+    position:absolute; left:0; right:0; bottom:0; background:#fff; border-radius:26px 26px 0 0;
+    max-height:88%; overflow-y:auto; transform:translateY(100%); transition:transform .35s cubic-bezier(.32,.72,0,1);
+    z-index:950; padding-bottom:20px;
+  }
+  .sheet.open{ transform:translateY(0); }
+  .sheet-handle{ width:38px; height:5px; background:#e2e2e2; border-radius:3px; margin:10px auto 4px; }
+  .sheet-close{ position:absolute; top:12px; right:14px; background:#f2f2f2; border:none; width:32px; height:32px; border-radius:50%; font-size:15px; cursor:pointer; z-index:2; }
+
+  /* clue flip cards (reused across screens 1) */
+  .clue-row{ display:flex; gap:8px; }
+  .clue{ flex:1; aspect-ratio:1; perspective:600px; cursor:pointer; }
+  .clue-inner{ position:relative; width:100%; height:100%; transform-style:preserve-3d; transition:transform .5s cubic-bezier(.34,1.56,.64,1); }
+  .clue.open .clue-inner{ transform:rotateY(180deg); }
+  .clue-f,.clue-b{ position:absolute; inset:0; backface-visibility:hidden; border-radius:14px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:6px; }
+  .clue-f{ background:var(--bg); border:2px dashed var(--blue); }
+  .clue-f span:first-child{ font-size:24px; }
+  .clue-f span:last-child{ font-size:10px; font-weight:800; color:var(--gray); margin-top:4px; }
+  .clue-b{ background:var(--blue); color:#fff; transform:rotateY(180deg); }
+  .clue-b span:first-child{ font-size:20px; }
+  .clue-b span:last-child{ font-size:10px; font-weight:800; margin-top:4px; line-height:1.3; }
+
+  /* ══════════ SCREEN 1: 産直マップ ══════════ */
+  #s-map{ background:linear-gradient(180deg,#EAF7FB 0%, var(--bg) 40%); }
+  .m-head{ padding:22px 20px 16px; }
+  .m-eyebrow{ font-size:11px; font-weight:800; color:var(--blue); letter-spacing:.08em; }
+  .m-title{ font-size:24px; font-weight:900; color:var(--ink); margin-top:2px; }
+  .m-mascot-row{ display:flex; align-items:flex-start; gap:10px; margin-top:14px; }
+  .m-mascot{ font-size:38px; flex-shrink:0; }
+  .m-list{ padding:4px 20px 20px; display:flex; flex-direction:column; gap:10px; flex:1; }
+  .ing-card{
+    display:flex; align-items:center; gap:14px; background:#fff; border-radius:18px; padding:14px 16px;
+    box-shadow:0 3px 12px rgba(0,0,0,0.06); border:2px solid transparent;
+  }
+  .ing-card.tappable{ border-color:#DCF0F7; cursor:pointer; }
+  .ing-card.tappable:active{ transform:scale(0.98); }
+  .ing-emoji{ font-size:32px; width:48px; text-align:center; flex-shrink:0; }
+  .ing-info{ flex:1; }
+  .ing-name{ font-size:16px; font-weight:900; color:var(--ink); }
+  .ing-meta{ margin-top:4px; display:flex; gap:6px; flex-wrap:wrap; }
+  .ing-arrow{ font-size:20px; color:var(--blue); flex-shrink:0; }
+  .ing-static-note{ font-size:11px; color:var(--gray); font-weight:700; flex-shrink:0; }
+
+  .d-hero{ padding:26px 20px 18px; text-align:center; }
+  .d-hero.lettuce{ background:linear-gradient(135deg,#E4F5FA,#fff); }
+  .d-hero.lemon{ background:linear-gradient(135deg,#FFF7D6,#fff); }
+  .d-hero-emoji{ font-size:56px; }
+  .d-hero-name{ font-size:22px; font-weight:900; color:var(--ink); margin-top:6px; }
+  .d-hero-tags{ display:flex; gap:6px; justify-content:center; margin-top:8px; }
+  .grade-toggle{ display:flex; gap:6px; justify-content:center; margin-top:10px; }
+  .grade-btn{ border:2px solid var(--hair); background:#fff; border-radius:999px; padding:5px 12px; font-family:inherit; font-size:11px; font-weight:800; color:var(--gray); cursor:pointer; }
+  .grade-btn.active{ background:var(--ink); border-color:var(--ink); color:#fff; }
+  .card-toast{ position:fixed; left:50%; top:38%; transform:translate(-50%,-50%) scale(.8); background:#fff; border-radius:20px; padding:16px 24px; box-shadow:0 10px 30px rgba(0,0,0,.3); font-weight:900; font-size:14px; line-height:1.6; color:var(--ink); z-index:4000; opacity:0; text-align:center; transition:opacity .25s, transform .25s; pointer-events:none; }
+  .card-toast.show{ opacity:1; transform:translate(-50%,-50%) scale(1); }
+  .d-sec{ margin:16px 18px 0; }
+  .d-sec-label{ font-size:12px; font-weight:900; color:var(--blue); margin-bottom:8px; display:flex; align-items:center; gap:6px; }
+  .d-sec-label::after{ content:''; flex:1; height:2px; background:var(--hair); margin-left:6px; }
+  .d-fact{ background:var(--bg); border:2px solid var(--hair); border-radius:16px; padding:14px 16px; font-size:13.5px; font-weight:700; color:var(--ink); line-height:1.7; }
+  .d-link-btn{ width:calc(100% - 36px); margin:18px 18px 4px; height:50px; display:flex; align-items:center; justify-content:center; gap:8px; font-size:14px; }
+  .d-note{ margin:8px 18px 20px; font-size:11px; color:var(--gray); font-weight:700; text-align:center; }
+
+  /* ── geo map (real leaflet map, fly-to-origin suction effect) ── */
+  .geo-map{ position:relative; width:100%; aspect-ratio:4/3; border-radius:18px; overflow:hidden; background:#AFD8E0; }
+  .geo-leaflet{ position:absolute; inset:0; }
+  .geo-vortex{ position:absolute; inset:-25%; z-index:640; pointer-events:none; opacity:0;
+    background:radial-gradient(circle at center, transparent 0%, transparent 28%, rgba(8,26,46,.5) 62%, rgba(8,26,46,.88) 100%); }
+  .geo-vortex.play{ animation:geoSuck 1.6s cubic-bezier(.65,0,.35,1) forwards; }
+  @keyframes geoSuck{
+    0%{ opacity:.95; transform:scale(2.4) rotate(0deg); }
+    65%{ opacity:.55; transform:scale(1) rotate(30deg); }
+    100%{ opacity:0; transform:scale(.12) rotate(50deg); }
+  }
+  .geo-tap-catch{ position:absolute; inset:0; z-index:650; cursor:pointer; background:transparent; }
+  .geo-hint{ position:absolute; bottom:6px; right:8px; font-size:10px; font-weight:800; color:rgba(255,255,255,.85); z-index:660; text-shadow:0 1px 3px rgba(0,0,0,.5); pointer-events:none; }
+  .geo-mini-wrap{ position:absolute; top:8px; left:8px; z-index:660; pointer-events:none; }
+  .geo-mini-label{ font-size:9px; font-weight:900; color:#fff; background:rgba(0,0,0,.45); display:inline-block; padding:2px 7px; border-radius:99px; margin-bottom:3px; }
+  .geo-mini{ width:92px; height:66px; border-radius:10px; overflow:hidden; border:2px solid #fff; box-shadow:0 4px 10px rgba(0,0,0,.35); }
+  .geo-caption{ text-align:center; font-size:11px; font-weight:700; color:var(--gray); margin-top:8px; }
+  @keyframes geoPinDrop{ from{ transform:scale(0) translateY(-24px); opacity:0; } to{ transform:scale(1) translateY(0); opacity:1; } }
+  @keyframes hf{
+    0%{ transform:translateY(0) scale(1); opacity:1; }
+    100%{ transform:translateY(-70px) scale(1.3); opacity:0; }
+  }
+
+  /* ══════════ SCREEN 2: 探究トーク ══════════ */
+  #s-chat{ background:var(--bg); }
+  .c-head{ background:linear-gradient(135deg,var(--blue),#0E85A8); padding:18px 20px; border-radius:0 0 24px 24px; color:#fff; }
+  .c-head-title{ font-size:18px; font-weight:900; }
+  .c-head-sub{ font-size:12px; font-weight:700; opacity:.85; margin-top:2px; }
+  .c-progress{ display:flex; gap:6px; margin-top:12px; }
+  .c-progress-dot{ flex:1; height:5px; border-radius:99px; background:rgba(255,255,255,0.3); }
+  .c-progress-dot.done{ background:var(--yellow); }
+  .c-body{ flex:1; padding:18px 16px; display:flex; flex-direction:column; gap:12px; overflow-y:auto; }
+  .c-row{ display:flex; gap:8px; max-width:88%; }
+  .c-row.ai{ align-self:flex-start; }
+  .c-row.kid{ align-self:flex-end; flex-direction:row-reverse; }
+  .c-row .m-mascot{ font-size:26px; }
+  .c-row.kid .bubble{ background:var(--blue); color:#fff; }
+  .c-chip-row{ display:flex; flex-wrap:wrap; gap:8px; margin-top:4px; }
+  .c-chip{ background:#fff; border:2px solid var(--hair); border-radius:999px; padding:8px 14px; font-size:13px; font-weight:800; color:var(--ink); cursor:pointer; }
+  .c-chip:active{ transform:scale(0.95); }
+  .c-input-row{ padding:10px 16px 16px; display:flex; gap:8px; border-top:1px solid var(--hair); background:#fff; }
+  .c-input-row input{ flex:1; border:2px solid var(--hair); border-radius:999px; padding:0 16px; height:44px; font-family:inherit; font-size:14px; }
+  .c-input-row input:focus{ outline:none; border-color:var(--blue); }
+  .c-send{ width:44px; height:44px; border-radius:50%; font-size:16px; flex-shrink:0; }
+  .c-start-wrap{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; padding:20px; text-align:center; }
+  .c-start-wrap .m-mascot{ font-size:56px; }
+
+  .r-wrap{ flex:1; padding:26px 20px; display:flex; flex-direction:column; align-items:center; gap:16px; text-align:center; }
+  .r-badge{ font-size:52px; }
+  .r-title{ font-size:19px; font-weight:900; color:var(--ink); }
+  .r-cards{ display:flex; gap:8px; flex-wrap:wrap; justify-content:center; }
+  .r-subject{ padding:8px 14px; border-radius:999px; font-size:12px; font-weight:900; }
+  .report-card{ width:100%; background:#fff; border-radius:20px; padding:18px; box-shadow:0 4px 16px rgba(0,0,0,0.08); text-align:left; }
+  .report-quote{ background:var(--bg); border-left:4px solid var(--coral); border-radius:0 12px 12px 0; padding:12px 14px; font-size:13.5px; font-weight:700; color:var(--ink); line-height:1.7; font-style:italic; }
+  .report-tags{ display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
+  .report-bar-row{ display:flex; align-items:center; gap:8px; margin-top:10px; }
+  .report-bar-label{ font-size:11px; font-weight:800; color:var(--gray); width:56px; flex-shrink:0; }
+  .report-bar-bg{ flex:1; height:8px; background:var(--hair); border-radius:99px; overflow:hidden; }
+  .report-bar-fill{ height:100%; border-radius:99px; background:linear-gradient(to right,var(--blue),var(--yellow)); width:0%; transition:width 1s cubic-bezier(.34,1.56,.64,1); }
+
+  /* ══════════ SCREEN 3: ストーリー ══════════ */
+  #s-story{ background:linear-gradient(180deg,#FFF3E9 0%, var(--bg) 45%); }
+  .st-head{ padding:16px 20px; display:flex; align-items:center; gap:10px; }
+  .st-progress{ flex:1; display:flex; gap:5px; }
+  .st-dot{ flex:1; height:5px; border-radius:99px; background:var(--hair); }
+  .st-dot.done{ background:var(--coral); }
+  .st-body{ flex:1; padding:8px 22px 20px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:16px; }
+  .st-mascot{ font-size:72px; }
+  .st-bubble{ background:#fff; border-radius:20px; padding:20px 22px; font-size:19px; font-weight:800; color:var(--ink); line-height:1.8; box-shadow:0 6px 20px rgba(0,0,0,0.08); }
+  .st-quiz-opts{ display:flex; flex-direction:column; gap:10px; width:100%; }
+  .st-opt{ background:#fff; border:2px solid var(--hair); border-radius:16px; padding:16px 18px; font-size:17px; font-weight:800; color:var(--ink); cursor:pointer; text-align:left; }
+  .st-opt:active{ transform:scale(0.98); }
+  .st-opt.correct{ border-color:var(--green); background:#EAF5E9; }
+  .st-opt.wrong{ border-color:var(--coral); background:#FFEDE7; opacity:.7; }
+  .st-feedback{ font-size:16px; font-weight:700; color:var(--green); line-height:1.7; background:#EAF5E9; border-radius:14px; padding:14px 18px; }
+  .st-footer{ padding:14px 20px 22px; }
+  .st-badge-wrap{ font-size:64px; }
+</style>
+</head>
+<body>
+
+<div class="picker">
+  <button class="active" data-target="s-map">🗺️ 産直マップ</button>
+  <button data-target="s-chat">🎙️ 探究トーク</button>
+  <button data-target="s-story">📖 ストーリー</button>
+</div>
+
+<div class="phone">
+
+  <!-- ══════════════════ QR entry splash: 今日のごはん ══════════════════ -->
+  <div class="menu-splash" id="menu-splash">
+    <div class="menu-splash-eyebrow">TODAY'S MENU</div>
+    <div class="menu-splash-title">今日のごはんは……</div>
+    <div class="menu-splash-list">
+      <div class="menu-splash-item">🐟 骨取り鮭のムニエル</div>
+      <div class="menu-splash-item">🍋 マイヤーレモン添え</div>
+      <div class="menu-splash-item">🥗 天然水で育ったサラダ</div>
+      <div class="menu-splash-item">🍲 コンソメスープ</div>
+    </div>
+    <button class="btn btn-coral" style="width:100%;height:56px;font-size:17px;margin-top:8px" onclick="startFromMenu()">はじまるよ</button>
+  </div>
+
+  <!-- ══════════════════ SCREEN 1: 産直マップ ══════════════════ -->
+  <div class="screen active" id="s-map">
+    <div class="m-head">
+      <div class="m-eyebrow">SANCHOKU MAP</div>
+      <div class="m-title">きょうのレシピ</div>
+      <div class="m-mascot-row">
+        <span class="m-mascot">🌱</span>
+        <div class="bubble">今日の食材、5つ！<br>カードをタップしてみよう</div>
+      </div>
+    </div>
+    <div class="m-list">
+      <div class="ing-card tappable" onclick="openSheet('tomato')">
+        <span class="ing-emoji">🍅</span>
+        <div class="ing-info">
+          <div class="ing-name">ミニトマト</div>
+          <div class="ing-meta"><span class="tag tag-green">国産</span></div>
+        </div>
+        <span class="ing-arrow">›</span>
+      </div>
+      <div class="ing-card tappable" onclick="openSheet('lettuce')">
+        <span class="ing-emoji">🥬</span>
+        <div class="ing-info">
+          <div class="ing-name">レタス</div>
+          <div class="ing-meta"><span class="tag tag-blue">💧水耕栽培</span></div>
+        </div>
+        <span class="ing-arrow">›</span>
+      </div>
+      <div class="ing-card tappable" onclick="openSheet('lemon')">
+        <span class="ing-emoji">🍋</span>
+        <div class="ing-info">
+          <div class="ing-name">マイヤーレモン</div>
+          <div class="ing-meta"><span class="tag tag-yellow">🇳🇿 NZ産</span></div>
+        </div>
+        <span class="ing-arrow">›</span>
+      </div>
+      <div class="ing-card tappable" onclick="openSheet('potato')">
+        <span class="ing-emoji">🥔</span>
+        <div class="ing-info">
+          <div class="ing-name">じゃがいも</div>
+          <div class="ing-meta"><span class="tag tag-green">国産</span></div>
+        </div>
+        <span class="ing-arrow">›</span>
+      </div>
+      <div class="ing-card tappable" onclick="openSheet('onion')">
+        <span class="ing-emoji">🧅</span>
+        <div class="ing-info">
+          <div class="ing-name">玉ねぎ</div>
+          <div class="ing-meta"><span class="tag tag-green">国産</span></div>
+        </div>
+        <span class="ing-arrow">›</span>
+      </div>
+    </div>
+
+    <!-- sheets -->
+    <div class="backdrop" id="map-backdrop" onclick="closeSheet()"></div>
+    <div class="sheet" id="sheet-lettuce">
+      <div class="sheet-handle"></div>
+      <button class="sheet-close" onclick="closeSheet()">✕</button>
+      <div class="d-hero lettuce">
+        <div class="d-hero-emoji">🥬</div>
+        <div class="d-hero-name">レタス</div>
+        <div class="d-hero-tags"><span class="tag tag-blue">💧水耕栽培</span></div>
+      </div>
+      <div class="d-sec">
+        <div class="d-sec-label">🤔 どうやって育つの？</div>
+        <div class="d-fact">土をつかわず、きれいな天然水だけで育てているよ。虫が入ってこない清潔なハウスの中だから、シャキシャキのまま安心して食べられるんだ！</div>
+      </div>
+      <div class="d-sec">
+        <div class="d-sec-label">🔍 ひみつをめくってみよう</div>
+        <div class="clue-row">
+          <div class="clue" onclick="flip(this)"><div class="clue-inner">
+            <div class="clue-f"><span>🌱</span><span>根っこは？</span></div>
+            <div class="clue-b"><span>💧</span><span>ずっと水にひたってる</span></div>
+          </div></div>
+          <div class="clue" onclick="flip(this)"><div class="clue-inner">
+            <div class="clue-f"><span>☀️</span><span>日光は？</span></div>
+            <div class="clue-b"><span>💡</span><span>専用ハウスでたっぷり</span></div>
+          </div></div>
+          <div class="clue" onclick="flip(this)"><div class="clue-inner">
+            <div class="clue-f"><span>🐛</span><span>虫は？</span></div>
+            <div class="clue-b"><span>🚫</span><span>ハウスの外だから来ない</span></div>
+          </div></div>
+        </div>
+      </div>
+      <div class="d-sec">
+        <div class="d-sec-label">🌏 どこからきた？</div>
+        <div class="geo-map" id="geo-lettuce">
+          <div class="geo-leaflet" id="geomap-lettuce"></div>
+          <div class="geo-vortex" id="geo-vortex-lettuce"></div>
+          <div class="geo-tap-catch" onclick="replaySuction('geo-lettuce')"></div>
+          <div class="geo-hint">タップでもう一度</div>
+        </div>
+        <div class="geo-caption">水耕栽培の農園は静岡にあるよ</div>
+      </div>
+      <button class="btn btn-blue d-link-btn" onclick="window.open('https://www.salad-bowl.jp/products/','_blank')">🔗 くわしく見る（サラダボウル）</button>
+      <div class="d-note">外部サイトが開きます</div>
+    </div>
+
+    <div class="sheet" id="sheet-lemon">
+      <div class="sheet-handle"></div>
+      <button class="sheet-close" onclick="closeSheet()">✕</button>
+      <div class="d-hero lemon">
+        <div class="d-hero-emoji">🍋</div>
+        <div class="d-hero-name">マイヤーレモン</div>
+        <div class="d-hero-tags">
+          <span class="tag tag-yellow">🇳🇿 ニュージーランド産</span>
+          <span class="tag tag-coral">🧬 自然交雑種</span>
+        </div>
+        <div class="grade-toggle">
+          <button class="grade-btn active" data-grade="low" onclick="setGrade('lemon','low',this)">🧒 ていがくねん</button>
+          <button class="grade-btn" data-grade="high" onclick="setGrade('lemon','high',this)">🧑 こうがくねん</button>
+        </div>
+      </div>
+      <div class="d-sec">
+        <div class="d-sec-label">🤔 ふつうのレモンとちがうの？</div>
+        <div class="d-fact" id="lemon-fact">じつは、🍋レモンのお母さんと🍊オレンジのお父さんから生まれた"あたらしい果物"なんだ！あまみがあって皮はオレンジに近い色。まぁるい形も特徴だよ。地球の反対がわ、ニュージーランドから船に乗って日本にやってきたんだ🌏</div>
+      </div>
+      <div class="d-sec">
+        <div class="d-sec-label">🔍 ひみつをめくってみよう</div>
+        <div class="clue-row">
+          <div class="clue" data-card="こうざつ" onclick="flip(this)"><div class="clue-inner">
+            <div class="clue-f"><span>🧬</span><span>交雑って？</span></div>
+            <div class="clue-b"><span>🍊×🍋</span><span id="lemon-clue-cross">🍋お母さんと🍊お父さんから 生まれたってこと！</span></div>
+          </div></div>
+          <div class="clue" onclick="flip(this)"><div class="clue-inner">
+            <div class="clue-f"><span>👅</span><span>味は？</span></div>
+            <div class="clue-b"><span>🍊</span><span>あまずっぱい（オレンジ寄り）</span></div>
+          </div></div>
+          <div class="clue" onclick="flip(this)"><div class="clue-inner">
+            <div class="clue-f"><span>📅</span><span>旬は？</span></div>
+            <div class="clue-b"><span>❄️</span><span>冬〜春（日本と季節が逆）</span></div>
+          </div></div>
+          <div class="clue" onclick="flip(this)"><div class="clue-inner">
+            <div class="clue-f"><span>🚢</span><span>旅の時間は？</span></div>
+            <div class="clue-b"><span>⏱️</span><span>船で約3週間の旅</span></div>
+          </div></div>
+        </div>
+      </div>
+      <div class="d-sec">
+        <div class="d-sec-label">🌏 どこからきた？</div>
+        <div class="geo-map" id="geo-lemon">
+          <div class="geo-leaflet" id="geomap-lemon"></div>
+          <div class="geo-vortex" id="geo-vortex-lemon"></div>
+          <div class="geo-mini-wrap">
+            <div class="geo-mini-label">🌏 世界のどこ？</div>
+            <div class="geo-mini" id="geomini-lemon"></div>
+          </div>
+          <div class="geo-tap-catch" onclick="replaySuction('geo-lemon')"></div>
+          <div class="geo-hint">タップでもう一度</div>
+        </div>
+        <div class="geo-caption">⚪ にほん から 🔴 ニュージーランドまで、船で約3週間🚢</div>
+      </div>
+    </div>
+
+    <div class="sheet" id="sheet-tomato">
+      <div class="sheet-handle"></div>
+      <button class="sheet-close" onclick="closeSheet()">✕</button>
+      <div class="d-hero lettuce">
+        <div class="d-hero-emoji">🍅</div>
+        <div class="d-hero-name">ミニトマト</div>
+        <div class="d-hero-tags"><span class="tag tag-green">🇯🇵 佐賀県産</span></div>
+      </div>
+      <div class="d-sec">
+        <div class="d-sec-label">🤔 どうやって育つの？</div>
+        <div class="d-fact">あたたかいハウスの中で、水や栄養をきちんと管理して育てているよ。太陽の光をいっぱい浴びるほど、あまさがぎゅっと増すんだ🍅☀️</div>
+      </div>
+      <div class="d-sec">
+        <div class="d-sec-label">🔍 ひみつをめくってみよう</div>
+        <div class="clue-row">
+          <div class="clue" onclick="flip(this)"><div class="clue-inner">
+            <div class="clue-f"><span>🌡️</span><span>ハウスの中は？</span></div>
+            <div class="clue-b"><span>🌞</span><span>一年中あたたかく管理</span></div>
+          </div></div>
+          <div class="clue" onclick="flip(this)"><div class="clue-inner">
+            <div class="clue-f"><span>💧</span><span>水やりは？</span></div>
+            <div class="clue-b"><span>🤖</span><span>コンピューターが自動で管理</span></div>
+          </div></div>
+          <div class="clue" onclick="flip(this)"><div class="clue-inner">
+            <div class="clue-f"><span>🍬</span><span>あまさの秘密は？</span></div>
+            <div class="clue-b"><span>☀️</span><span>太陽の光をたっぷり浴びるから</span></div>
+          </div></div>
+        </div>
+      </div>
+      <div class="d-sec">
+        <div class="d-sec-label">🌏 どこからきた？</div>
+        <div class="geo-map" id="geo-tomato">
+          <div class="geo-leaflet" id="geomap-tomato"></div>
+          <div class="geo-vortex" id="geo-vortex-tomato"></div>
+          <div class="geo-tap-catch" onclick="replaySuction('geo-tomato')"></div>
+          <div class="geo-hint">タップでもう一度</div>
+        </div>
+        <div class="geo-caption">嬉野市（うれしの）のハウスで育てているよ</div>
+      </div>
+      <button class="btn btn-blue d-link-btn" onclick="window.open('https://ureshinoagri.com/tomato/','_blank')">🔗 くわしく見る（嬉野アグリ）</button>
+      <div class="d-note">外部サイトが開きます</div>
+    </div>
+
+    <div class="sheet" id="sheet-potato">
+      <div class="sheet-handle"></div>
+      <button class="sheet-close" onclick="closeSheet()">✕</button>
+      <div class="d-hero lettuce">
+        <div class="d-hero-emoji">🥔</div>
+        <div class="d-hero-name">じゃがいも</div>
+        <div class="d-hero-tags"><span class="tag tag-green">🇯🇵 北海道産</span></div>
+      </div>
+      <div class="d-sec">
+        <div class="d-sec-label">🤔 どうやって育つの？</div>
+        <div class="d-fact">北海道は広い畑とすずしい気候で、じゃがいもをのびのび育てられるんだ。夏でもすずしいから、じゃがいもが元気に育つんだよ🥔❄️</div>
+      </div>
+      <div class="d-sec">
+        <div class="d-sec-label">🔍 ひみつをめくってみよう</div>
+        <div class="clue-row">
+          <div class="clue" onclick="flip(this)"><div class="clue-inner">
+            <div class="clue-f"><span>🌡️</span><span>向いてる気候は？</span></div>
+            <div class="clue-b"><span>❄️</span><span>すずしい気候</span></div>
+          </div></div>
+          <div class="clue" onclick="flip(this)"><div class="clue-inner">
+            <div class="clue-f"><span>🕳️</span><span>どこで育つ？</span></div>
+            <div class="clue-b"><span>🌱</span><span>土の中で育つ</span></div>
+          </div></div>
+          <div class="clue" onclick="flip(this)"><div class="clue-inner">
+            <div class="clue-f"><span>📦</span><span>収穫はいつ？</span></div>
+            <div class="clue-b"><span>🍂</span><span>秋（9〜10月ごろ）</span></div>
+          </div></div>
+        </div>
+      </div>
+      <div class="d-sec">
+        <div class="d-sec-label">🌏 どこからきた？</div>
+        <div class="geo-map" id="geo-potato">
+          <div class="geo-leaflet" id="geomap-potato"></div>
+          <div class="geo-vortex" id="geo-vortex-potato"></div>
+          <div class="geo-tap-catch" onclick="replaySuction('geo-potato')"></div>
+          <div class="geo-hint">タップでもう一度</div>
+        </div>
+        <div class="geo-caption">北海道・十勝の広い畑で育っているよ</div>
+      </div>
+    </div>
+
+    <div class="sheet" id="sheet-onion">
+      <div class="sheet-handle"></div>
+      <button class="sheet-close" onclick="closeSheet()">✕</button>
+      <div class="d-hero lettuce">
+        <div class="d-hero-emoji">🧅</div>
+        <div class="d-hero-name">玉ねぎ</div>
+        <div class="d-hero-tags"><span class="tag tag-green">🇯🇵 兵庫県産</span></div>
+      </div>
+      <div class="d-sec">
+        <div class="d-sec-label">🤔 どうやって育つの？</div>
+        <div class="d-fact">兵庫県の淡路島は、あたたかい気候と海からの風で、あまい玉ねぎが育つ有名な産地なんだ🧅🌊</div>
+      </div>
+      <div class="d-sec">
+        <div class="d-sec-label">🔍 ひみつをめくってみよう</div>
+        <div class="clue-row">
+          <div class="clue" onclick="flip(this)"><div class="clue-inner">
+            <div class="clue-f"><span>🌊</span><span>なぜあまいの？</span></div>
+            <div class="clue-b"><span>🌤️</span><span>あたたかい気候と海風</span></div>
+          </div></div>
+          <div class="clue" onclick="flip(this)"><div class="clue-inner">
+            <div class="clue-f"><span>😢</span><span>切ると涙が出るのは？</span></div>
+            <div class="clue-b"><span>🧪</span><span>つんとする成分のせい</span></div>
+          </div></div>
+          <div class="clue" onclick="flip(this)"><div class="clue-inner">
+            <div class="clue-f"><span>🏝️</span><span>有名な産地は？</span></div>
+            <div class="clue-b"><span>🏝️</span><span>淡路島</span></div>
+          </div></div>
+        </div>
+      </div>
+      <div class="d-sec">
+        <div class="d-sec-label">🌏 どこからきた？</div>
+        <div class="geo-map" id="geo-onion">
+          <div class="geo-leaflet" id="geomap-onion"></div>
+          <div class="geo-vortex" id="geo-vortex-onion"></div>
+          <div class="geo-tap-catch" onclick="replaySuction('geo-onion')"></div>
+          <div class="geo-hint">タップでもう一度</div>
+        </div>
+        <div class="geo-caption">兵庫県・淡路島で育っているよ</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════ SCREEN 2: 探究トーク ══════════════════ -->
+  <div class="screen" id="s-chat">
+    <div class="c-head">
+      <div class="c-head-title">🎙️ 探究トーク</div>
+      <div class="c-head-sub">たべたあと、ハカセと ふりかえろう</div>
+      <div class="c-progress">
+        <div class="c-progress-dot" id="cd-1"></div>
+        <div class="c-progress-dot" id="cd-2"></div>
+        <div class="c-progress-dot" id="cd-3"></div>
+      </div>
+    </div>
+
+    <div class="c-start-wrap" id="c-start">
+      <span class="m-mascot">🦉</span>
+      <div class="bubble">こんばんは！今日のレタスとレモンのこと、ちょっとおしゃべりしよう。<br>正解はないから、思ったことをそのまま話してね😊</div>
+      <button class="btn btn-blue" style="padding:14px 32px;font-size:15px" onclick="startChat()">はなす</button>
+    </div>
+
+    <div class="c-body hidden" id="c-body" style="display:none"></div>
+
+    <div class="c-input-row hidden" id="c-input" style="display:none">
+      <input type="text" id="c-text" placeholder="おもったことを かいてね…">
+      <button class="btn btn-coral pill c-send" onclick="sendKidText()">➤</button>
+    </div>
+
+    <!-- report -->
+    <div class="r-wrap hidden" id="c-report" style="display:none">
+      <span class="r-badge">🎉</span>
+      <div class="r-title">おつかれさま！<br>3つの学びカードをゲット</div>
+      <div class="r-cards">
+        <span class="r-subject tag-blue">🔬 理科</span>
+        <span class="r-subject tag-coral">🌍 社会</span>
+        <span class="r-subject tag-yellow">📖 国語</span>
+      </div>
+      <button class="btn btn-blue" style="padding:12px 24px;font-size:14px" onclick="showReport()">📮 レポートをおうちの人に送る</button>
+      <div class="report-card hidden" id="report-card" style="display:none">
+        <div class="d-sec-label" style="margin-top:0">💬 今日の発言</div>
+        <div class="report-quote" id="report-quote">「水だけでレタスが育つなんて、根っこが水を飲んでるみたい」</div>
+        <div class="report-tags">
+          <span class="tag tag-blue">観察</span><span class="tag tag-coral">類推</span>
+        </div>
+        <div class="d-sec-label" style="margin-top:16px">📊 かんがえ方のようす</div>
+        <div class="report-bar-row"><span class="report-bar-label">観察</span><div class="report-bar-bg"><div class="report-bar-fill" style="width:80%"></div></div></div>
+        <div class="report-bar-row"><span class="report-bar-label">類推</span><div class="report-bar-bg"><div class="report-bar-fill" style="width:65%"></div></div></div>
+        <div class="report-bar-row"><span class="report-bar-label">好奇心</span><div class="report-bar-bg"><div class="report-bar-fill" style="width:90%"></div></div></div>
+        <div class="d-note" style="text-align:left;margin:14px 0 0">おうちの人はレポート画面からいつでも見れるよ</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════ SCREEN 3: ストーリー ══════════════════ -->
+  <div class="screen" id="s-story">
+    <div class="st-head">
+      <div class="st-progress" id="st-progress"></div>
+    </div>
+    <div class="st-body" id="st-body"></div>
+    <div class="st-footer">
+      <button class="btn btn-coral" style="width:100%;height:52px;font-size:15px" id="st-next" onclick="storyNext()">はじめる</button>
+    </div>
+  </div>
+
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* ── QR entry: 本日のメニュー splash ── */
+function startFromMenu(){
+  document.getElementById('menu-splash').classList.remove('show');
+  document.querySelectorAll('.picker button').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.querySelector('.picker button[data-target="s-story"]').classList.add('active');
+  document.getElementById('s-story').classList.add('active');
+  storyIdx = -1;
+  storyNext();
+}
+if (new URLSearchParams(location.search).get('entry') === 'menu'){
+  document.getElementById('menu-splash').classList.add('show');
+}
+
+/* ── screen picker ── */
+document.querySelectorAll('.picker button').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.picker button').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.target).classList.add('active');
+  });
+});
+
+/* ── screen 1: sheets ── */
+function openSheet(id){
+  document.getElementById('map-backdrop').classList.add('open');
+  document.getElementById('sheet-'+id).classList.add('open');
+  setTimeout(()=>playSuction('geo-'+id), 500);
+}
+function closeSheet(){
+  document.getElementById('map-backdrop').classList.remove('open');
+  document.querySelectorAll('#s-map .sheet').forEach(s=>s.classList.remove('open'));
+}
+function flip(el){
+  const wasOpen = el.classList.contains('open');
+  el.classList.toggle('open');
+  if (!wasOpen && el.dataset.card){
+    collectCard(el.dataset.card, el);
+  }
+}
+
+/* ── screen 1: collectible clue cards ── */
+function collectCard(name, el){
+  const rect = el.getBoundingClientRect();
+  const emojis = ['✨','🌟','🎉','💫'];
+  for (let i=0;i<10;i++){
+    setTimeout(()=>{
+      const s = document.createElement('div');
+      s.textContent = emojis[i%emojis.length];
+      s.style.cssText = `position:fixed;font-size:20px;pointer-events:none;z-index:3001;left:${rect.left+rect.width*(0.2+Math.random()*0.6)}px;top:${rect.top+rect.height*0.3}px;animation:hf 1.1s ease-out forwards;`;
+      document.body.appendChild(s);
+      setTimeout(()=>s.remove(),1200);
+    }, i*50);
+  }
+  const toast = document.createElement('div');
+  toast.className = 'card-toast';
+  toast.innerHTML = `🧬<br>りかカード<br>「${name}」ゲット！`;
+  document.body.appendChild(toast);
+  requestAnimationFrame(()=>toast.classList.add('show'));
+  setTimeout(()=>{
+    toast.classList.remove('show');
+    setTimeout(()=>toast.remove(),300);
+  }, 1500);
+}
+
+/* ── screen 1: grade toggle (低学年/高学年 で説明の深さを切替) ── */
+const GRADE_CONTENT = {
+  lemon: {
+    low: {
+      fact: 'じつは、🍋レモンのお母さんと🍊オレンジのお父さんから生まれた"あたらしい果物"なんだ！あまみがあって皮はオレンジに近い色。まぁるい形も特徴だよ。地球の反対がわ、ニュージーランドから船に乗って日本にやってきたんだ🌏',
+      clueBack: '🍋お母さんと🍊お父さんから 生まれたってこと！'
+    },
+    high: {
+      fact: '実は、レモンとオレンジが自然に「交雑（こうざつ）」してできた、あたらしい果物なんだ！あまみがあって皮はオレンジに近い色。まぁるい形も特徴だよ。地球の反対がわ、ニュージーランドから船に乗って日本にやってきたんだ🌏',
+      clueBack: '花粉が受粉して、ちがう種類の花から あたらしい果物が生まれること'
+    }
+  }
+};
+function setGrade(key, grade, btn){
+  const c = GRADE_CONTENT[key][grade];
+  document.getElementById(key+'-fact').textContent = c.fact;
+  document.getElementById(key+'-clue-cross').textContent = c.clueBack;
+  btn.parentElement.querySelectorAll('.grade-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+/* ── screen 1: geo map — real leaflet, fly-to-origin "suction" effect ── */
+const GEO_ORIGINS = {
+  lettuce: {
+    lat:34.98, lng:138.38, zoom:8, startView:[36.2,138.5], startZoom:5,
+    name:'静岡県', sub:'🇯🇵 日本', pinColor:'var(--blue)'
+  },
+  lemon: {
+    lat:-41.29, lng:174.78, zoom:4, startView:[15,160], startZoom:2,
+    name:'ニュージーランド', sub:'🇳🇿', pinColor:'var(--coral)',
+    origin:{ lat:35.68, lng:139.76 }, mini:true
+  },
+  tomato: {
+    lat:33.13, lng:129.99, zoom:8, startView:[36.2,138.5], startZoom:5,
+    name:'佐賀県（嬉野市）', sub:'🇯🇵 日本', pinColor:'var(--blue)'
+  },
+  potato: {
+    lat:42.92, lng:143.20, zoom:7, startView:[36.2,138.5], startZoom:5,
+    name:'北海道（十勝）', sub:'🇯🇵 日本', pinColor:'var(--blue)'
+  },
+  onion: {
+    lat:34.35, lng:134.85, zoom:9, startView:[36.2,138.5], startZoom:5,
+    name:'兵庫県（淡路島）', sub:'🇯🇵 日本', pinColor:'var(--blue)'
+  }
+};
+const geoMaps = {};
+function initGeoMap(key){
+  if (geoMaps[key]) return geoMaps[key];
+  const o = GEO_ORIGINS[key];
+  const map = L.map('geomap-'+key, { zoomControl:false, scrollWheelZoom:false, dragging:false, attributionControl:false, keyboard:false })
+    .setView(o.startView, o.startZoom);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:10 }).addTo(map);
+  geoMaps[key] = map;
+  return map;
+}
+function initGeoMini(key){
+  const o = GEO_ORIGINS[key];
+  if (!o.mini || geoMaps['mini-'+key]) return;
+  const midLat = o.origin ? (o.origin.lat+o.lat)/2 : o.lat;
+  const midLng = o.origin ? (o.origin.lng+o.lng)/2 : o.lng;
+  const mini = L.map('geomini-'+key, { zoomControl:false, scrollWheelZoom:false, dragging:false, attributionControl:false, keyboard:false, tap:false, minZoom:0, maxZoom:0 })
+    .setView([midLat, midLng], 0);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:4 }).addTo(mini);
+  if (o.origin){
+    L.circleMarker([o.origin.lat,o.origin.lng], { radius:3, color:'#fff', fillColor:'#fff', fillOpacity:1, weight:1.5 }).addTo(mini);
+  }
+  L.circleMarker([o.lat,o.lng], { radius:5, color:'#fff', fillColor:o.pinColor, fillOpacity:1, weight:2 }).addTo(mini);
+  geoMaps['mini-'+key] = mini;
+  setTimeout(()=>mini.invalidateSize(), 60);
+}
+function dropGeoMarker(map, o){
+  const icon = L.divIcon({
+    html:`<div style="width:40px;height:40px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;border:3px solid ${o.pinColor};box-shadow:0 6px 16px rgba(0,0,0,.35);animation:geoPinDrop .5s cubic-bezier(.34,1.56,.64,1)">📍</div>
+      <div style="text-align:center;margin-top:4px;background:#fff;color:var(--ink);font-family:inherit;font-size:11px;font-weight:900;padding:4px 10px;border-radius:99px;white-space:nowrap;box-shadow:0 4px 10px rgba(0,0,0,.25)">${o.name}<br><span style="font-size:10px;font-weight:800;color:var(--gray)">${o.sub}</span></div>`,
+    className:'', iconSize:[40,66], iconAnchor:[20,66]
+  });
+  L.marker([o.lat,o.lng], {icon}).addTo(map);
+}
+function launchGeoBurst(wrap){
+  const emojis = ['✨','🌟','🎉'];
+  const rect = wrap.getBoundingClientRect();
+  for (let i=0;i<8;i++){
+    setTimeout(()=>{
+      const s = document.createElement('div');
+      s.textContent = emojis[i%emojis.length];
+      s.style.cssText = `position:fixed;font-size:20px;pointer-events:none;z-index:3001;left:${rect.left+rect.width*(0.3+Math.random()*0.4)}px;top:${rect.top+rect.height*0.4}px;animation:hf 1.1s ease-out forwards;`;
+      document.body.appendChild(s);
+      setTimeout(()=>s.remove(),1200);
+    }, i*70);
+  }
+}
+function triggerVortex(key){
+  const v = document.getElementById('geo-vortex-'+key);
+  if (!v) return;
+  v.classList.remove('play');
+  void v.offsetWidth;
+  v.classList.add('play');
+}
+function playSuction(mapId){
+  const wrap = document.getElementById(mapId);
+  if (!wrap || wrap.classList.contains('played')) return;
+  wrap.classList.add('played');
+  const key = mapId.replace('geo-','');
+  const o = GEO_ORIGINS[key];
+  const map = initGeoMap(key);
+  setTimeout(()=>map.invalidateSize(), 50);
+  initGeoMini(key);
+  if (o.origin){
+    L.circleMarker([o.origin.lat,o.origin.lng], {radius:5, color:'#fff', fillColor:'#fff', fillOpacity:.9, weight:2}).addTo(map);
+  }
+  setTimeout(()=>{
+    map.flyTo([o.lat,o.lng], o.zoom, { duration:1.6 });
+    triggerVortex(key);
+  }, 400);
+  setTimeout(()=>{
+    dropGeoMarker(map, o);
+    launchGeoBurst(wrap);
+  }, 2100);
+}
+function replaySuction(mapId){
+  const wrap = document.getElementById(mapId);
+  wrap.classList.remove('played');
+  const key = mapId.replace('geo-','');
+  const map = geoMaps[key];
+  const o = GEO_ORIGINS[key];
+  if (map){
+    map.eachLayer(l=>{ if (l instanceof L.Marker || l instanceof L.CircleMarker) map.removeLayer(l); });
+    map.setView(o.startView, o.startZoom);
+  }
+  playSuction(mapId);
+}
+
+/* ── screen 2: chat ── */
+const cBody = ()=>document.getElementById('c-body');
+let chatStep = 0;
+let kidLastAnswer = '';
+
+const CHAT_STEPS = [
+  { ai:'このレタス、土をつかわないで育ったんだって。どうやって育ったと思う？',
+    chips:['水だけで育つ？','ハウスの中？','わからない'] },
+  { ai:'このレモン、遠いニュージーランドから来たんだって。どうやって日本まで来たと思う？',
+    chips:['船にのって','飛行機で','トラックで'] },
+  { ai:'もし世界中の果物が、日本でしか育たなかったら…どうなると思う？ 自由に書いてみて！',
+    free:true }
+];
+
+function addRow(role, html){
+  const row = document.createElement('div');
+  row.className = 'c-row ' + role;
+  row.innerHTML = role === 'ai'
+    ? `<span class="m-mascot">🦉</span><div class="bubble">${html}</div>`
+    : `<div class="bubble">${html}</div>`;
+  cBody().appendChild(row);
+  cBody().scrollTop = cBody().scrollHeight;
+  return row;
+}
+
+function startChat(){
+  document.getElementById('c-start').style.display = 'none';
+  cBody().style.display = 'flex';
+  askStep();
+}
+
+function askStep(){
+  if (chatStep >= CHAT_STEPS.length){ finishChat(); return; }
+  document.getElementById('cd-'+(chatStep+1)).classList.add('done');
+  const step = CHAT_STEPS[chatStep];
+  const row = addRow('ai', step.ai);
+  if (step.free){
+    document.getElementById('c-input').style.display = 'flex';
+  } else {
+    const chipWrap = document.createElement('div');
+    chipWrap.className = 'c-chip-row';
+    step.chips.forEach(c=>{
+      const chip = document.createElement('button');
+      chip.className = 'c-chip'; chip.textContent = c;
+      chip.onclick = ()=>{ chipWrap.remove(); pickAnswer(c); };
+      chipWrap.appendChild(chip);
+    });
+    row.appendChild(chipWrap);
+  }
+}
+
+function sendKidText(){
+  const input = document.getElementById('c-text');
+  const val = input.value.trim();
+  if (!val) return;
+  input.value = '';
+  document.getElementById('c-input').style.display = 'none';
+  pickAnswer(val);
+}
+
+function pickAnswer(text){
+  kidLastAnswer = text;
+  addRow('kid', text);
+  setTimeout(()=>{
+    const depths = [
+      '水だけで育つなんて不思議だね。お水には何が入ってるんだろうね🤔',
+      'なるほど〜！ものが遠くから運ばれてくるの、おもしろいね🚢',
+      'いいこと考えたね！たべものが遠くから来てくれること、ありがたいね😊'
+    ];
+    addRow('ai', depths[chatStep]);
+    chatStep++;
+    setTimeout(askStep, 900);
+  }, 500);
+}
+
+function finishChat(){
+  setTimeout(()=>{
+    document.getElementById('c-report').style.display = 'flex';
+    document.getElementById('c-report').classList.remove('hidden');
+    cBody().style.display = 'none';
+    document.getElementById('c-input').style.display = 'none';
+  }, 400);
+}
+
+function showReport(){
+  if (kidLastAnswer){
+    document.getElementById('report-quote').textContent = '「' + kidLastAnswer + '」';
+  }
+  document.getElementById('report-card').style.display = 'block';
+  document.getElementById('report-card').classList.remove('hidden');
+  setTimeout(()=>{
+    document.querySelectorAll('#report-card .report-bar-fill').forEach(el=>{
+      el.style.width = el.style.width; // trigger already-set width transition on show
+    });
+  }, 50);
+}
+
+/* ── screen 3: story ── */
+const STORY = [
+  { mascot:'🐟', text:'やあ！ぼく コツトルくん。<br>今日は ぼくと おしゃべりしよう！', next:'つぎへ' },
+  { mascot:'🐟', text:'今日のごはんは「骨取り魚のムニエル」だって！', next:'つぎへ' },
+  { mascot:'🐟', text:'ムニエルって知ってる？', next:'つぎへ' },
+  { quiz:true, q:'ねえ、骨取り魚って なんで骨がないと思う？', opts:['薬でとかしている','人がとっている','もともと骨がない'], correct:1,
+    fb:'せいかい！じつは 人の手で 骨をとってるんだ。どうやってとってるか、くわしく見てみよう👀' },
+  { mascot:'🐟', text:'まず、大きな魚をさばいて、切り身にするよ🔪', next:'つぎへ' },
+  { mascot:'🐟', text:'でも切り身には、まだ細かい「小骨」がのこってるんだ🦴これが刺さると痛いよね…', next:'つぎへ' },
+  { quiz:true, q:'小骨がどこにあるか見つけるには、何を使う？', opts:['虫めがね','レントゲン（X線）','聴診器'], correct:1,
+    fb:'せいかい！レントゲンで魚をすかして見ると、骨の場所がくっきり見えるんだ。びょういんとおなじしくみだね🩻' },
+  { mascot:'🐟', text:'骨の場所がわかったら…実は、機械じゃなくて<br><b>人の手</b>で、一本一本ピンセットを使って抜いていくんだ🧑‍🔧', next:'つぎへ' },
+  { quiz:true, q:'小骨をぬくときに使う道具は？', opts:['おはし','ピンセット','スプーン'], correct:1,
+    fb:'せいかい！細い骨を1本ずつ、ピンセットでていねいに抜いていくよ。すごい集中力だね👏' },
+  { mascot:'🐟', text:'何百びきもの魚から、ひとつひとつ手作業で骨をぬく。<br>「骨取り魚」は、たくさんの人の根気で作られているんだね。', next:'つぎへ' },
+  { badge:true, text:'骨取り魚 はかせ になった！' }
+];
+let storyIdx = -1;
+
+function renderStoryProgress(){
+  const wrap = document.getElementById('st-progress');
+  wrap.innerHTML = STORY.map((_,i)=>`<div class="st-dot ${i<=storyIdx?'done':''}"></div>`).join('');
+}
+
+function storyNext(){
+  storyIdx++;
+  if (storyIdx >= STORY.length){ storyIdx = STORY.length-1; return; }
+  renderStoryProgress();
+  const s = STORY[storyIdx];
+  const body = document.getElementById('st-body');
+  const nextBtn = document.getElementById('st-next');
+
+  if (s.badge){
+    body.innerHTML = `<div class="st-badge-wrap">🏅</div><div class="st-bubble">${s.text}<br><br>おさかなの豆知識、はかせレベルだね！</div>`;
+    nextBtn.textContent = 'もういちど見る';
+    nextBtn.onclick = ()=>{ storyIdx = -1; storyNext(); };
+    return;
+  }
+
+  if (s.quiz){
+    body.innerHTML = `
+      <span class="st-mascot">🐟</span>
+      <div class="st-bubble">${s.q}</div>
+      <div class="st-quiz-opts" id="st-opts">
+        ${s.opts.map((o,i)=>`<button class="st-opt" data-i="${i}">${o}</button>`).join('')}
+      </div>`;
+    nextBtn.textContent = 'こたえをえらんでね';
+    nextBtn.onclick = null;
+    document.querySelectorAll('#st-opts .st-opt').forEach(btn=>{
+      btn.onclick = ()=>{
+        const i = Number(btn.dataset.i);
+        document.querySelectorAll('#st-opts .st-opt').forEach(b=>b.onclick=null);
+        if (i === s.correct){ btn.classList.add('correct'); }
+        else {
+          btn.classList.add('wrong');
+          document.querySelector(`#st-opts .st-opt[data-i="${s.correct}"]`).classList.add('correct');
+        }
+        const fb = document.createElement('div');
+        fb.className = 'st-feedback';
+        fb.textContent = s.fb;
+        body.appendChild(fb);
+        nextBtn.textContent = 'つぎへ';
+        nextBtn.onclick = storyNext;
+      };
+    });
+    return;
+  }
+
+  body.innerHTML = `<span class="st-mascot">${s.mascot}</span><div class="st-bubble">${s.text}</div>`;
+  nextBtn.textContent = s.next;
+  nextBtn.onclick = storyNext;
+}
+renderStoryProgress();
+</script>
+</body>
+</html>
